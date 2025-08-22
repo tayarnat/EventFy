@@ -9,7 +9,7 @@ EventFy é um aplicativo inovador para gerenciamento e descoberta de eventos, de
 ## 👥 Equipe de Desenvolvimento
 
 - **Natalia Dias Tayar de Moraes**
-- **Wandersson Gonçalves**
+- **Wanderson Gonçalves**
 
 ## 🚀 Tecnologias Utilizadas
 
