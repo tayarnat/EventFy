@@ -1,0 +1,39 @@
+name: eventfy_app
+description: "A new Flutter project."
+
+environment:
+  sdk: ^3.9.0
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # Essenciais para começar
+  supabase_flutter: ^2.5.6
+  provider: ^6.1.2
+  
+  # UI Básica
+  google_fonts: ^6.2.1
+  
+  # Utilidades Básicas
+  intl: ^0.19.0
+  shared_preferences: ^2.2.3
+  
+  # HTTP e JSON
+  http: ^1.2.1
+  json_annotation: ^4.9.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  json_serializable: ^6.8.0
+  build_runner: ^2.4.12
+
+flutter:
+  uses-material-design: true
+
+# COMENTÁRIO: Depois de ter o app básico funcionando, adicionar gradualmente:
+# - google_maps_flutter: ^2.6.1 (quando implementar mapas)
+# - geolocator: ^12.0.0 (quando implementar localização)
+# - image_picker: ^1.1.2 (quando implementar upload)
+# - firebase_core + firebase_messaging (quando implementar push notifications)
