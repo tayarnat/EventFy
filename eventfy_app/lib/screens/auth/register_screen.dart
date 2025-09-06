@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:go_router/go_router.dart';
+import 'package:mask_text_input_formatter/mask_text_input_formatter.dart';
 import '../../providers/auth_provider.dart';
 import '../../widgets/common/custom_button.dart';
 import '../../widgets/common/custom_text_field.dart';
-
+import '../../services/notification_service.dart';
 class RegisterScreen extends StatefulWidget {
   @override
   _RegisterScreenState createState() => _RegisterScreenState();
@@ -61,12 +63,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (!_formKey.currentState!.validate()) return;
     
     if (_passwordController.text != _confirmPasswordController.text) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('As senhas não coincidem'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      NotificationService.instance.showError('As senhas não coincidem');
       return;
     }
 
@@ -96,19 +93,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
 
     if (success && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Cadastro realizado com sucesso! Verifique seu e-mail.'),
-          backgroundColor: Colors.green,
-        ),
+      NotificationService.instance.showSuccess(
+        'Cadastro realizado com sucesso! Verifique seu e-mail.'
       );
-      Navigator.pushReplacementNamed(context, '/login');
+      context.go('/login');
     } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(authProvider.errorMessage ?? 'Erro no cadastro'),
-          backgroundColor: Colors.red,
-        ),
+      NotificationService.instance.showError(
+        authProvider.errorMessage ?? 'Erro no cadastro'
       );
     }
   }
@@ -242,7 +233,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 // Link para login
                 TextButton(
                   onPressed: () {
-                    Navigator.pop(context);
+                    context.go('/login');
                   },
                   child: const Text('Já tem conta? Faça login'),
                 ),

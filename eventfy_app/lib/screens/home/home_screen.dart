@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:go_router/go_router.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/events_provider.dart';
+import '../../providers/preferences_provider.dart';
+import '../../widgets/event_card.dart';
+import '../../models/event_model.dart';
+import '../map/map_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -43,67 +49,210 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 // Aba Início
-class HomeTab extends StatelessWidget {
+class HomeTab extends StatefulWidget {
+  @override
+  _HomeTabState createState() => _HomeTabState();
+}
+
+class _HomeTabState extends State<HomeTab> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    
+    // Inicializar providers
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final eventsProvider = Provider.of<EventsProvider>(context, listen: false);
+      final preferencesProvider = Provider.of<PreferencesProvider>(context, listen: false);
+      
+      if (eventsProvider.events.isEmpty && !eventsProvider.isLoadingEvents) {
+        eventsProvider.initialize();
+      }
+      
+      if (preferencesProvider.categories.isEmpty) {
+        preferencesProvider.loadCategories();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Event Map'),
+        title: const Text('EventFy'),
         centerTitle: true,
         elevation: 0,
-      ),
-      body: const Padding(
-        padding: EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Eventos próximos',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            SizedBox(height: 16),
-            EventPlaceholderCard(),
-            SizedBox(height: 12),
-            EventPlaceholderCard(),
-            SizedBox(height: 12),
-            EventPlaceholderCard(),
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: const [
+            Tab(text: 'Eventos Próximos'),
+            Tab(text: 'Eventos para Você'),
           ],
         ),
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          NearbyEventsTab(),
+          RecommendedEventsTab(),
+        ],
       ),
     );
   }
 }
 
 // Aba Buscar
-class SearchTab extends StatelessWidget {
+class SearchTab extends StatefulWidget {
+  @override
+  _SearchTabState createState() => _SearchTabState();
+}
+
+class _SearchTabState extends State<SearchTab> {
+  bool _showFilters = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Inicializar o provider de eventos quando a aba for carregada
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final eventsProvider = Provider.of<EventsProvider>(context, listen: false);
+      if (eventsProvider.events.isEmpty && !eventsProvider.isLoadingEvents) {
+        eventsProvider.initialize();
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Buscar Eventos'),
-        centerTitle: true,
-        elevation: 0,
-      ),
-      body: const Padding(
-        padding: EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            TextField(
-              decoration: InputDecoration(
-                hintText: 'Buscar eventos...',
-                prefixIcon: Icon(Icons.search),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.all(Radius.circular(12)),
-                ),
+      body: Stack(
+        children: [
+          // Mapa ocupando toda a tela
+          const MapScreen(),
+          
+          // Filtros (se visíveis)
+          if (_showFilters)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 80,
+              left: 16,
+              right: 16,
+              child: Consumer<EventsProvider>(
+                builder: (context, eventsProvider, child) {
+                  return Card(
+                    elevation: 8,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text(
+                                'Filtros',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: () {
+                                  setState(() {
+                                    _showFilters = false;
+                                  });
+                                },
+                                icon: const Icon(Icons.close),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          
+                          // Filtro de distância
+                          Text(
+                            'Distância máxima: ${eventsProvider.maxDistance.toInt()} km',
+                            style: const TextStyle(fontWeight: FontWeight.w500),
+                          ),
+                          Slider(
+                            value: eventsProvider.maxDistance,
+                            min: 1.0,
+                            max: 100.0,
+                            divisions: 99,
+                            onChanged: (value) {
+                              eventsProvider.setMaxDistance(value);
+                            },
+                          ),
+                          const SizedBox(height: 16),
+                          
+                          // Filtro de eventos gratuitos
+                          CheckboxListTile(
+                            title: const Text('Apenas eventos gratuitos'),
+                            value: eventsProvider.showOnlyFreeEvents,
+                            onChanged: (value) {
+                              eventsProvider.setShowOnlyFreeEvents(value ?? false);
+                            },
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                          const SizedBox(height: 16),
+                          
+                          // Botões de ação
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton(
+                                  onPressed: () {
+                                    eventsProvider.clearFilters();
+                                  },
+                                  child: const Text('Limpar'),
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: ElevatedButton(
+                                  onPressed: () {
+                                    setState(() {
+                                      _showFilters = false;
+                                    });
+                                  },
+                                  child: const Text('Aplicar'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
               ),
             ),
-            SizedBox(height: 16),
-            Text('🗺️ Aqui será implementado o mapa com eventos'),
-          ],
-        ),
+          
+          // Botão de filtros
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 16,
+            right: 80,
+            child: FloatingActionButton(
+              heroTag: 'filters',
+              mini: true,
+              backgroundColor: Colors.white,
+              foregroundColor: Colors.blue,
+              onPressed: () {
+                setState(() {
+                  _showFilters = !_showFilters;
+                });
+              },
+              child: const Icon(Icons.tune),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -181,12 +330,7 @@ class ProfileTab extends StatelessWidget {
                   title: const Text('Editar Perfil'),
                   trailing: const Icon(Icons.arrow_forward_ios),
                   onTap: () {
-                    // TODO: Implementar edição de perfil
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Edição de perfil em desenvolvimento'),
-                      ),
-                    );
+                    context.pushNamed('profile_edit');
                   },
                 ),
                 
@@ -216,6 +360,8 @@ class ProfileTab extends StatelessWidget {
                   child: ElevatedButton(
                     onPressed: () async {
                       await authProvider.signOut();
+                      // O GoRouter redirecionará automaticamente para a tela de login
+                      // com base no estado de autenticação
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red,
@@ -235,68 +381,265 @@ class ProfileTab extends StatelessWidget {
   }
 }
 
-// Widget placeholder para eventos
-class EventPlaceholderCard extends StatelessWidget {
-  const EventPlaceholderCard({Key? key}) : super(key: key);
-
+// Aba de Eventos Próximos
+class NearbyEventsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Row(
-          children: [
-            Container(
-              width: 60,
-              height: 60,
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(
-                Icons.event,
-                color: Colors.grey,
-                size: 30,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Evento de Exemplo',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
+    return Consumer<EventsProvider>(
+      builder: (context, eventsProvider, child) {
+        if (eventsProvider.isLoadingEvents) {
+          return const Center(
+            child: CircularProgressIndicator(),
+          );
+        }
+
+        if (eventsProvider.errorMessage != null) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.error_outline,
+                  size: 64,
+                  color: Colors.grey[400],
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Erro ao carregar eventos',
+                  style: TextStyle(
+                    fontSize: 18,
+                    color: Colors.grey[600],
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Hoje às 19:00',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[600],
-                    ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  eventsProvider.errorMessage!,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[500],
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Local do Evento - 2.5 km',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[500],
-                    ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: () => eventsProvider.initialize(),
+                  child: const Text('Tentar Novamente'),
+                ),
+              ],
+            ),
+          );
+        }
+
+        // Filtrar e ordenar eventos por distância
+        final nearbyEvents = _getNearbyEventsSorted(eventsProvider.filteredEvents);
+
+        if (nearbyEvents.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.location_off,
+                  size: 64,
+                  color: Colors.grey[400],
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Nenhum evento próximo',
+                  style: TextStyle(
+                    fontSize: 18,
+                    color: Colors.grey[600],
                   ),
-                ],
-              ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Ative a localização para ver eventos próximos',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[500],
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
             ),
-            Icon(
-              Icons.favorite_border,
-              color: Colors.grey[400],
-            ),
-          ],
-        ),
-      ),
+          );
+        }
+
+        return RefreshIndicator(
+          onRefresh: () => eventsProvider.initialize(),
+          child: ListView.builder(
+            padding: const EdgeInsets.all(8),
+            itemCount: nearbyEvents.length,
+            itemBuilder: (context, index) {
+              final event = nearbyEvents[index];
+              return CompactEventCard(
+                event: event,
+                onTap: () {
+                  // TODO: Navegar para detalhes do evento
+                },
+              );
+            },
+          ),
+        );
+      },
     );
+  }
+
+  List<EventModel> _getNearbyEventsSorted(List<EventModel> events) {
+    // Filtrar eventos que têm distância calculada
+    final eventsWithDistance = events
+        .where((event) => event.distanceFromUser != null)
+        .toList();
+    
+    // Ordenar por distância
+    eventsWithDistance.sort((a, b) => 
+        a.distanceFromUser!.compareTo(b.distanceFromUser!));
+    
+    return eventsWithDistance;
+  }
+}
+
+// Aba de Eventos Recomendados
+class RecommendedEventsTab extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Consumer2<EventsProvider, PreferencesProvider>(
+      builder: (context, eventsProvider, preferencesProvider, child) {
+        if (eventsProvider.isLoadingEvents) {
+          return const Center(
+            child: CircularProgressIndicator(),
+          );
+        }
+
+        if (eventsProvider.errorMessage != null) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.error_outline,
+                  size: 64,
+                  color: Colors.grey[400],
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Erro ao carregar eventos',
+                  style: TextStyle(
+                    fontSize: 18,
+                    color: Colors.grey[600],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: () => eventsProvider.initialize(),
+                  child: const Text('Tentar Novamente'),
+                ),
+              ],
+            ),
+          );
+        }
+
+        // Obter eventos recomendados baseados nas preferências
+        final recommendedEvents = _getRecommendedEvents(
+          eventsProvider.events,
+          preferencesProvider,
+        );
+
+        if (recommendedEvents.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.recommend,
+                  size: 64,
+                  color: Colors.grey[400],
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Nenhuma recomendação disponível',
+                  style: TextStyle(
+                    fontSize: 18,
+                    color: Colors.grey[600],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Configure suas preferências para receber recomendações personalizadas',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[500],
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          );
+        }
+
+        return RefreshIndicator(
+          onRefresh: () => eventsProvider.initialize(),
+          child: ListView.builder(
+            padding: const EdgeInsets.all(8),
+            itemCount: recommendedEvents.length,
+            itemBuilder: (context, index) {
+              final event = recommendedEvents[index];
+              return CompactEventCard(
+                event: event,
+                onTap: () {
+                  // TODO: Navegar para detalhes do evento
+                },
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  List<EventModel> _getRecommendedEvents(
+    List<EventModel> events,
+    PreferencesProvider preferencesProvider,
+  ) {
+    final userPreferences = preferencesProvider.userPreferences;
+    
+    if (userPreferences.isEmpty) {
+      // Se não há preferências, retornar eventos ordenados por popularidade
+      final sortedEvents = List<EventModel>.from(events);
+      sortedEvents.sort((a, b) => 
+          (b.totalInterested + b.totalConfirmed).compareTo(
+              a.totalInterested + a.totalConfirmed));
+      return sortedEvents;
+    }
+
+    // Calcular score de recomendação para cada evento
+    final eventsWithScore = events.map((event) {
+      int score = 0;
+      
+      // Pontuação baseada nas categorias preferidas
+      if (event.categorias != null) {
+        for (String category in event.categorias!) {
+          if (userPreferences.contains(category)) {
+            score += 10; // Pontos por categoria correspondente
+          }
+        }
+      }
+      
+      // Pontuação baseada na popularidade
+      score += (event.totalInterested * 2); // Interessados valem 2 pontos
+      score += (event.totalConfirmed * 3); // Confirmados valem 3 pontos
+      
+      // Pontuação baseada na avaliação
+      if (event.averageRating != null) {
+        score += (event.averageRating! * 2).round(); // Rating vale até 10 pontos
+      }
+      
+      return MapEntry(event, score);
+    }).toList();
+
+    // Ordenar por score decrescente
+    eventsWithScore.sort((a, b) => b.value.compareTo(a.value));
+    
+    return eventsWithScore.map((entry) => entry.key).toList();
   }
 }

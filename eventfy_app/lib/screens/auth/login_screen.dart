@@ -1,8 +1,12 @@
+import 'dart:developer';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:go_router/go_router.dart';
 import '../../providers/auth_provider.dart';
 import '../../widgets/common/custom_button.dart';
 import '../../widgets/common/custom_text_field.dart';
+import '../../services/notification_service.dart';
 
 class LoginScreen extends StatefulWidget {
   @override
@@ -31,16 +35,22 @@ class _LoginScreenState extends State<LoginScreen> {
       _emailController.text.trim(),
       _passwordController.text,
     );
-
+    log(success.toString());
     if (success && mounted) {
-      // Navegação será implementada com GoRouter
-      Navigator.pushReplacementNamed(context, '/home');
+      // Verificar se é o primeiro login
+      if (authProvider.isFirstLogin) {
+        context.go('/onboarding/preferences');
+      } else {
+        // Redirecionar baseado no tipo de usuário
+        if (authProvider.isCompany) {
+          context.go('/company');
+        } else {
+          context.go('/home');
+        }
+      }
     } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(authProvider.errorMessage ?? 'Erro no login'),
-          backgroundColor: Colors.red,
-        ),
+      NotificationService.instance.showError(
+        authProvider.errorMessage ?? 'Erro no login'
       );
     }
   }
@@ -133,7 +143,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 // Link para registro
                 TextButton(
                   onPressed: () {
-                    Navigator.pushNamed(context, '/register');
+                    context.go('/register');
                   },
                   child: const Text('Não tem conta? Cadastre-se'),
                 ),

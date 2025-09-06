@@ -16,6 +16,7 @@ class UserModel {
   final String? avatarUrl;
   final double? locationLat;
   final double? locationLng;
+  final bool onboardingCompleted;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -32,6 +33,7 @@ class UserModel {
     this.avatarUrl,
     this.locationLat,
     this.locationLng,
+    this.onboardingCompleted = false,
     required this.createdAt,
     required this.updatedAt,
   });

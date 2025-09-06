@@ -509,6 +509,23 @@ CREATE POLICY "Events are publicly readable" ON events FOR SELECT USING (true);
 CREATE POLICY "Companies can manage their events" ON events 
     FOR ALL USING (company_id IN (SELECT id FROM companies WHERE id = auth.uid()));
 
+-- ALTER TABLE EXECUTADO POSTERIORMENTE 01
+
+-- Política para permitir inserção de dados na tabela users durante o registro
+CREATE POLICY "Allow service role to insert user data" 
+ON users 
+FOR INSERT 
+TO authenticated, anon 
+WITH CHECK (true);
+
+-- Política para permitir inserção de dados na tabela companies durante o registro
+CREATE POLICY "Allow service role to insert company data" 
+ON companies 
+FOR INSERT 
+TO authenticated, anon 
+WITH CHECK (true);
+
+
 -- ============================================
 -- COMENTÁRIOS E OBSERVAÇÕES
 -- ============================================

@@ -21,6 +21,7 @@ UserModel _$UserModelFromJson(Map<String, dynamic> json) => UserModel(
   avatarUrl: json['avatarUrl'] as String?,
   locationLat: (json['locationLat'] as num?)?.toDouble(),
   locationLng: (json['locationLng'] as num?)?.toDouble(),
+  onboardingCompleted: json['onboardingCompleted'] as bool? ?? false,
   createdAt: DateTime.parse(json['createdAt'] as String),
   updatedAt: DateTime.parse(json['updatedAt'] as String),
 );
@@ -38,6 +39,7 @@ Map<String, dynamic> _$UserModelToJson(UserModel instance) => <String, dynamic>{
   'avatarUrl': instance.avatarUrl,
   'locationLat': instance.locationLat,
   'locationLng': instance.locationLng,
+  'onboardingCompleted': instance.onboardingCompleted,
   'createdAt': instance.createdAt.toIso8601String(),
   'updatedAt': instance.updatedAt.toIso8601String(),
 };
