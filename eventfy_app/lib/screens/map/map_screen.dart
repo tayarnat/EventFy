@@ -10,9 +10,19 @@ import 'package:http/http.dart' as http;
 import '../../providers/events_provider.dart';
 import '../../models/event_model.dart';
 import '../../widgets/event_card.dart';
+import '../event/event_details_screen.dart';
 
 class MapScreen extends StatefulWidget {
-  const MapScreen({super.key});
+  final double? initialLat;
+  final double? initialLng;
+  final String? eventId;
+  
+  const MapScreen({
+    super.key,
+    this.initialLat,
+    this.initialLng,
+    this.eventId,
+  });
 
   @override
   State<MapScreen> createState() => _MapScreenState();
@@ -47,9 +57,44 @@ class _MapScreenState extends State<MapScreen> {
       await eventsProvider.initialize();
     }
     
+    // Carregar todos os eventos e usar filteredEvents
+    await eventsProvider.loadEvents();
+    
     await _loadCustomMarkers();
     _updateMarkers();
-    _moveToUserLocation();
+    _moveToInitialLocation();
+  }
+  
+  void _moveToInitialLocation() {
+    final eventsProvider = Provider.of<EventsProvider>(context, listen: false);
+    
+    if (_mapController != null) {
+      // Se temos coordenadas iniciais (vindo de um evento), usar elas
+      if (widget.initialLat != null && widget.initialLng != null) {
+        _mapController!.animateCamera(
+          CameraUpdate.newLatLngZoom(
+            LatLng(widget.initialLat!, widget.initialLng!),
+            16.0, // Zoom maior para focar no evento
+          ),
+        );
+        
+        // Se temos um eventId, destacar o evento
+        if (widget.eventId != null) {
+          _highlightEvent(widget.eventId!);
+        }
+      } else {
+        // Usar localização do usuário como fallback
+        final userPosition = eventsProvider.currentPosition;
+        if (userPosition != null) {
+          _mapController!.animateCamera(
+            CameraUpdate.newLatLngZoom(
+              LatLng(userPosition.latitude, userPosition.longitude),
+              14.0,
+            ),
+          );
+        }
+      }
+    }
   }
 
   Future<void> _loadCustomMarkers() async {
@@ -57,78 +102,31 @@ class _MapScreenState extends State<MapScreen> {
     final events = eventsProvider.filteredEvents;
     
     for (final event in events) {
-      if (event.fotoPrincipalUrl != null && !_customMarkers.containsKey(event.id)) {
+      if (!_customMarkers.containsKey(event.id)) {
         try {
-          // Determinar cor baseada na categoria principal
-          Color pinColor = Colors.blue;
-          if (event.categorias != null && event.categorias!.isNotEmpty) {
-            switch (event.categorias!.first.toLowerCase()) {
-              case 'música':
-              case 'musica':
-                pinColor = Colors.purple;
-                break;
-              case 'esporte':
-              case 'esportes':
-                pinColor = Colors.green;
-                break;
-              case 'cultura':
-              case 'arte':
-                pinColor = Colors.orange;
-                break;
-              case 'tecnologia':
-              case 'tech':
-                pinColor = Colors.blue;
-                break;
-              case 'gastronomia':
-              case 'comida':
-                pinColor = Colors.red;
-                break;
-              default:
-                pinColor = Colors.blue;
-            }
-          }
-          
           final customMarker = await _createCustomMarker(
-            event.fotoPrincipalUrl!,
-            pinColor: pinColor,
+            event.fotoPrincipalUrl,
+            eventTitle: event.titulo,
             isGratuito: event.isGratuito,
           );
           _customMarkers[event.id] = customMarker;
         } catch (e) {
-          // Se falhar ao carregar a imagem, usar marcador padrão
-          print('Erro ao carregar imagem do evento ${event.id}: $e');
+          // Se falhar ao criar marcador personalizado, usar marcador padrão
+          print('Erro ao criar marcador personalizado do evento ${event.id}: $e');
         }
       }
     }
   }
 
-  Future<BitmapDescriptor> _createCustomMarker(String imageUrl, {Color pinColor = Colors.blue, bool isGratuito = true}) async {
+  Future<BitmapDescriptor> _createCustomMarker(String? imageUrl, {required String eventTitle, bool isGratuito = true}) async {
     try {
-      // Baixar a imagem
-      final response = await http.get(Uri.parse(imageUrl));
-      if (response.statusCode != 200) {
-        throw Exception('Falha ao baixar imagem');
-      }
-
-      // Converter para Uint8List
-      final Uint8List imageBytes = response.bodyBytes;
-      
-      // Decodificar a imagem
-      final ui.Codec codec = await ui.instantiateImageCodec(
-        imageBytes,
-        targetWidth: 100,
-        targetHeight: 100,
-      );
-      final ui.FrameInfo frameInfo = await codec.getNextFrame();
-      final ui.Image image = frameInfo.image;
-
       // Criar um canvas para desenhar o marcador personalizado
       final ui.PictureRecorder recorder = ui.PictureRecorder();
       final Canvas canvas = Canvas(recorder);
       final Size size = const Size(100, 120);
 
-      // Cores baseadas no tipo de evento
-      final Color borderColor = isGratuito ? Colors.green : Colors.orange;
+      // Cor laranja padrão para todos os pins
+      final Color pinColor = Colors.orange;
       
       // Desenhar sombra
       final Paint shadowPaint = Paint()
@@ -160,33 +158,58 @@ class _MapScreenState extends State<MapScreen> {
         pinPaint,
       );
 
-      // Desenhar borda colorida
+      // Desenhar borda laranja
       final Paint borderPaint = Paint()
-        ..color = borderColor
+        ..color = pinColor
         ..style = PaintingStyle.stroke
         ..strokeWidth = 3;
       
       canvas.drawCircle(const Offset(50, 50), 25, borderPaint);
 
-      // Desenhar a imagem circular
-      final Rect imageRect = const Rect.fromLTWH(30, 30, 40, 40);
-      final Path clipPath = Path()
-        ..addOval(imageRect);
-      
-      canvas.save();
-      canvas.clipPath(clipPath);
-      canvas.drawImageRect(
-        image,
-        Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
-        imageRect,
-        Paint(),
-      );
-      canvas.restore();
+      // Tentar carregar e desenhar a imagem do evento
+      if (imageUrl != null && imageUrl.isNotEmpty) {
+        try {
+          final response = await http.get(Uri.parse(imageUrl));
+          if (response.statusCode == 200) {
+            final Uint8List imageBytes = response.bodyBytes;
+            final ui.Codec codec = await ui.instantiateImageCodec(
+              imageBytes,
+              targetWidth: 100,
+              targetHeight: 100,
+            );
+            final ui.FrameInfo frameInfo = await codec.getNextFrame();
+            final ui.Image image = frameInfo.image;
 
-      // Adicionar ícone de preço no canto
+            // Desenhar a imagem circular
+            final Rect imageRect = const Rect.fromLTWH(30, 30, 40, 40);
+            final Path clipPath = Path()
+              ..addOval(imageRect);
+            
+            canvas.save();
+            canvas.clipPath(clipPath);
+            canvas.drawImageRect(
+              image,
+              Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
+              imageRect,
+              Paint(),
+            );
+            canvas.restore();
+          } else {
+            throw Exception('Falha ao baixar imagem');
+          }
+        } catch (e) {
+          // Se falhar ao carregar imagem, usar inicial do título
+          _drawEventInitial(canvas, eventTitle, pinColor);
+        }
+      } else {
+        // Se não há URL de imagem, usar inicial do título
+        _drawEventInitial(canvas, eventTitle, pinColor);
+      }
+
+      // Adicionar ícone de preço no canto se não for gratuito
       if (!isGratuito) {
         final Paint pricePaint = Paint()
-          ..color = Colors.orange
+          ..color = Colors.red
           ..style = PaintingStyle.fill;
         
         canvas.drawCircle(const Offset(70, 30), 8, pricePaint);
@@ -210,8 +233,8 @@ class _MapScreenState extends State<MapScreen> {
       // Finalizar o desenho
       final ui.Picture picture = recorder.endRecording();
       final ui.Image markerImage = await picture.toImage(
-        size.width.toInt(),
-        size.height.toInt(),
+        (size.width * 1.5).toInt(),
+        (size.height * 1.5).toInt(),
       );
       
       // Converter para bytes
@@ -222,11 +245,40 @@ class _MapScreenState extends State<MapScreen> {
 
       return BitmapDescriptor.fromBytes(markerBytes);
     } catch (e) {
-      // Retornar marcador padrão em caso de erro
-      return BitmapDescriptor.defaultMarkerWithHue(
-        isGratuito ? BitmapDescriptor.hueGreen : BitmapDescriptor.hueOrange,
-      );
+      // Retornar marcador padrão laranja em caso de erro
+      return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
     }
+  }
+
+  void _drawEventInitial(Canvas canvas, String eventTitle, Color pinColor) {
+    // Obter a primeira letra do título
+    String initial = eventTitle.isNotEmpty ? eventTitle[0].toUpperCase() : 'E';
+    
+    // Desenhar fundo circular para a inicial
+    final Paint initialBgPaint = Paint()
+      ..color = pinColor.withOpacity(0.2)
+      ..style = PaintingStyle.fill;
+    
+    canvas.drawCircle(const Offset(50, 50), 20, initialBgPaint);
+    
+    // Desenhar a inicial
+    final TextPainter textPainter = TextPainter(
+      text: TextSpan(
+        text: initial,
+        style: TextStyle(
+          color: pinColor,
+          fontSize: 24,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    );
+    textPainter.layout();
+    
+    // Centralizar o texto
+    final double textX = 50 - (textPainter.width / 2);
+    final double textY = 50 - (textPainter.height / 2);
+    textPainter.paint(canvas, Offset(textX, textY));
   }
 
   void _updateMarkers() {
@@ -236,32 +288,28 @@ class _MapScreenState extends State<MapScreen> {
     
     Set<Marker> markers = {};
     
-    // Adicionar marcador da localização do usuário
-    if (userPosition != null) {
-      markers.add(
-        Marker(
-          markerId: const MarkerId('user_location'),
-          position: LatLng(userPosition.latitude, userPosition.longitude),
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
-          infoWindow: const InfoWindow(
-            title: 'Sua localização',
-            snippet: 'Você está aqui',
-          ),
-        ),
-      );
-    }
+    // Removido marcador da localização do usuário
     
     // Adicionar marcadores dos eventos
     for (final event in events) {
-      // Usar marcador personalizado se disponível, senão usar padrão
+      // Usar marcador personalizado se disponível, senão usar padrão laranja maior
       BitmapDescriptor markerIcon;
       if (_customMarkers.containsKey(event.id)) {
         markerIcon = _customMarkers[event.id]!;
       } else {
-        markerIcon = BitmapDescriptor.defaultMarkerWithHue(
-          event.isGratuito ? BitmapDescriptor.hueGreen : BitmapDescriptor.hueRed,
-        );
+        markerIcon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
       }
+      
+      // Criar snippet sem descrição
+      String snippet = '';
+      if (event.categorias != null && event.categorias!.isNotEmpty) {
+        snippet += 'Tags: ${event.categorias!.take(2).join(', ')}';
+        if (event.categorias!.length > 2) {
+          snippet += '...';
+        }
+        snippet += '\n';
+      }
+      snippet += '${event.formattedPrice} • ${event.endereco}';
       
       markers.add(
         Marker(
@@ -270,7 +318,7 @@ class _MapScreenState extends State<MapScreen> {
           icon: markerIcon,
           infoWindow: InfoWindow(
             title: event.titulo,
-            snippet: '${event.formattedPrice} • ${event.endereco}',
+            snippet: snippet,
             onTap: () => _showEventDetails(event),
           ),
           onTap: () => _showEventDetails(event),
@@ -285,29 +333,50 @@ class _MapScreenState extends State<MapScreen> {
 
   void _moveToUserLocation() {
     final eventsProvider = Provider.of<EventsProvider>(context, listen: false);
-    final userPosition = eventsProvider.currentPosition;
     
-    if (userPosition != null && _mapController != null) {
-      _mapController!.animateCamera(
-        CameraUpdate.newLatLngZoom(
-          LatLng(userPosition.latitude, userPosition.longitude),
-          14.0,
-        ),
-      );
+    if (_mapController != null) {
+      // Sempre usar a localização atual do usuário
+      final userPosition = eventsProvider.currentPosition;
+      if (userPosition != null) {
+        _mapController!.animateCamera(
+          CameraUpdate.newLatLngZoom(
+            LatLng(userPosition.latitude, userPosition.longitude),
+            14.0,
+          ),
+        );
+      }
     }
   }
 
   void _showEventDetails(EventModel event) {
-    setState(() {
-      _selectedEvent = event;
-      _showingEventDetails = true;
-    });
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => EventDetailsScreen(event: event),
+      ),
+    );
   }
 
   void _hideEventDetails() {
     setState(() {
       _selectedEvent = null;
       _showingEventDetails = false;
+    });
+  }
+  
+  void _highlightEvent(String eventId) {
+    final eventsProvider = Provider.of<EventsProvider>(context, listen: false);
+    final event = eventsProvider.filteredEvents.firstWhere(
+      (e) => e.id == eventId,
+      orElse: () => eventsProvider.filteredEvents.first,
+    );
+    
+    // Mostrar detalhes do evento automaticamente
+    Future.delayed(const Duration(milliseconds: 500), () {
+      setState(() {
+        _selectedEvent = event;
+        _showingEventDetails = true;
+      });
     });
   }
 
@@ -331,25 +400,10 @@ class _MapScreenState extends State<MapScreen> {
   void _searchInCurrentArea() {
     if (_mapController != null) {
       _mapController!.getVisibleRegion().then((bounds) async {
-        final center = LatLng(
-          (bounds.northeast.latitude + bounds.southwest.latitude) / 2,
-          (bounds.northeast.longitude + bounds.southwest.longitude) / 2,
-        );
-        
-        // Calcular raio aproximado da área visível (com margem de segurança)
-        final distance = Geolocator.distanceBetween(
-          bounds.southwest.latitude,
-          bounds.southwest.longitude,
-          bounds.northeast.latitude,
-          bounds.northeast.longitude,
-        ) / 1500; // Converter para km com margem
-        
         final eventsProvider = Provider.of<EventsProvider>(context, listen: false);
-        await eventsProvider.searchEventsByLocation(
-          center.latitude,
-          center.longitude,
-          radiusKm: distance.clamp(5.0, 50.0), // Limitar entre 5km e 50km
-        );
+        
+        // Recarregar todos os eventos e usar filteredEvents
+        await eventsProvider.loadEvents();
         
         // Recarregar marcadores personalizados para novos eventos
         await _loadCustomMarkers();
@@ -375,6 +429,12 @@ class _MapScreenState extends State<MapScreen> {
 
   // Método para recarregar marcadores quando eventos mudarem
   void _onEventsChanged() async {
+    // Recarregar eventos com base nos filtros atuais
+    final eventsProvider = Provider.of<EventsProvider>(context, listen: false);
+    
+    // Carregar todos os eventos e usar filteredEvents
+    await eventsProvider.loadEvents();
+    
     await _loadCustomMarkers();
     _updateMarkers();
   }
@@ -590,8 +650,7 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Consumer<EventsProvider>(
+    return Consumer<EventsProvider>(
         builder: (context, eventsProvider, child) {
           return Stack(
             children: [
@@ -936,8 +995,14 @@ class _MapScreenState extends State<MapScreen> {
                             width: double.infinity,
                             child: ElevatedButton(
                               onPressed: () {
-                                // Navegar para detalhes do evento
-                                // TODO: Implementar navegação
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => EventDetailsScreen(
+                                      event: _selectedEvent!,
+                                    ),
+                                  ),
+                                );
                               },
                               child: const Text('Ver Detalhes'),
                             ),
@@ -980,8 +1045,7 @@ class _MapScreenState extends State<MapScreen> {
             ],
           );
         },
-      ),
-    );
+      );
   }
 
   @override

@@ -155,10 +155,17 @@ class EventsProvider with ChangeNotifier {
       
       print('DEBUG: Total de eventos na tabela (sem filtros): ${(allEventsResponse as List).length}');
       
-      // Usando ST_AsGeoJSON para converter o campo location para GeoJSON
+      // Usando JOIN para carregar categorias dos eventos
       final response = await supabase
             .from('events')
-            .select('*')
+            .select('''
+              *,
+              event_categories!inner(
+                categories!inner(
+                  nome
+                )
+              )
+            ''')
             .order('data_inicio', ascending: true);
       
       final now = DateTime.now();

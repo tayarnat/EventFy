@@ -126,9 +126,17 @@ class EventModel {
       }
     }
     
-    // Converter categorias se vier como string separada por vírgula
-    List<String>? categoriasList;
-    if (json['categorias'] != null) {
+    // Processar categorias - pode vir como lista aninhada do JOIN ou string separada por vírgulas
+    List<String> categoriasList = [];
+    if (json['event_categories'] != null && json['event_categories'] is List) {
+      // Estrutura do JOIN: event_categories -> categories -> nome
+      for (var eventCategory in json['event_categories']) {
+        if (eventCategory['categories'] != null && eventCategory['categories']['nome'] != null) {
+          categoriasList.add(eventCategory['categories']['nome'].toString());
+        }
+      }
+    } else if (json['categorias'] != null) {
+      // Fallback para estrutura antiga
       if (json['categorias'] is List) {
         categoriasList = List<String>.from(json['categorias']);
       } else if (json['categorias'] is String) {
@@ -169,7 +177,7 @@ class EventModel {
       empresaNome: json['empresa_nome'] as String?,
       empresaLogo: json['empresa_logo'] as String?,
       empresaRating: json['empresa_rating'] != null ? (json['empresa_rating'] as num).toDouble() : null,
-      categorias: categoriasList,
+      categorias: categoriasList.isNotEmpty ? categoriasList : null,
     );
   }
 

@@ -7,6 +7,7 @@ import '../../providers/preferences_provider.dart';
 import '../../widgets/event_card.dart';
 import '../../models/event_model.dart';
 import '../map/map_screen.dart';
+import '../event/event_details_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -116,7 +117,7 @@ class SearchTab extends StatefulWidget {
 }
 
 class _SearchTabState extends State<SearchTab> {
-  bool _showFilters = false;
+
 
   @override
   void initState() {
@@ -137,121 +138,6 @@ class _SearchTabState extends State<SearchTab> {
         children: [
           // Mapa ocupando toda a tela
           const MapScreen(),
-          
-          // Filtros (se visíveis)
-          if (_showFilters)
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 80,
-              left: 16,
-              right: 16,
-              child: Consumer<EventsProvider>(
-                builder: (context, eventsProvider, child) {
-                  return Card(
-                    elevation: 8,
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text(
-                                'Filtros',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              IconButton(
-                                onPressed: () {
-                                  setState(() {
-                                    _showFilters = false;
-                                  });
-                                },
-                                icon: const Icon(Icons.close),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-                          
-                          // Filtro de distância
-                          Text(
-                            'Distância máxima: ${eventsProvider.maxDistance.toInt()} km',
-                            style: const TextStyle(fontWeight: FontWeight.w500),
-                          ),
-                          Slider(
-                            value: eventsProvider.maxDistance,
-                            min: 1.0,
-                            max: 100.0,
-                            divisions: 99,
-                            onChanged: (value) {
-                              eventsProvider.setMaxDistance(value);
-                            },
-                          ),
-                          const SizedBox(height: 16),
-                          
-                          // Filtro de eventos gratuitos
-                          CheckboxListTile(
-                            title: const Text('Apenas eventos gratuitos'),
-                            value: eventsProvider.showOnlyFreeEvents,
-                            onChanged: (value) {
-                              eventsProvider.setShowOnlyFreeEvents(value ?? false);
-                            },
-                            contentPadding: EdgeInsets.zero,
-                          ),
-                          const SizedBox(height: 16),
-                          
-                          // Botões de ação
-                          Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton(
-                                  onPressed: () {
-                                    eventsProvider.clearFilters();
-                                  },
-                                  child: const Text('Limpar'),
-                                ),
-                              ),
-                              const SizedBox(width: 16),
-                              Expanded(
-                                child: ElevatedButton(
-                                  onPressed: () {
-                                    setState(() {
-                                      _showFilters = false;
-                                    });
-                                  },
-                                  child: const Text('Aplicar'),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          
-          // Botão de filtros
-          Positioned(
-            top: MediaQuery.of(context).padding.top + 16,
-            right: 80,
-            child: FloatingActionButton(
-              heroTag: 'filters',
-              mini: true,
-              backgroundColor: Colors.white,
-              foregroundColor: Colors.blue,
-              onPressed: () {
-                setState(() {
-                  _showFilters = !_showFilters;
-                });
-              },
-              child: const Icon(Icons.tune),
-            ),
-          ),
         ],
       ),
     );
@@ -475,7 +361,12 @@ class NearbyEventsTab extends StatelessWidget {
               return CompactEventCard(
                 event: event,
                 onTap: () {
-                  // TODO: Navegar para detalhes do evento
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => EventDetailsScreen(event: event),
+                    ),
+                  );
                 },
               );
             },
@@ -587,7 +478,12 @@ class RecommendedEventsTab extends StatelessWidget {
               return CompactEventCard(
                 event: event,
                 onTap: () {
-                  // TODO: Navegar para detalhes do evento
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => EventDetailsScreen(event: event),
+                    ),
+                  );
                 },
               );
             },

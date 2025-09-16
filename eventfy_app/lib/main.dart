@@ -73,7 +73,7 @@ class MyApp extends StatelessWidget {
             title: 'EventFy',
             debugShowCheckedModeBanner: false,
             theme: ThemeData(
-              primarySwatch: Colors.blue,
+              primarySwatch: Colors.deepPurple,
               fontFamily: GoogleFonts.poppins().fontFamily,
               elevatedButtonTheme: ElevatedButtonThemeData(
                 style: ElevatedButton.styleFrom(

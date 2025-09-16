@@ -10,6 +10,7 @@ import '../../screens/company/company_home_screen.dart';
 import '../../screens/company/create_event_screen.dart';
 import '../../screens/onboarding/preferences_onboarding_screen.dart';
 import '../../screens/profile/profile_edit_screen.dart';
+import '../../screens/map/map_screen.dart';
 
 /// Classe responsável por gerenciar as rotas da aplicação usando GoRouter
 class AppRouter {
@@ -68,6 +69,21 @@ class AppRouter {
         path: '/company/create-event',
         name: 'create_event',
         builder: (context, state) => const CreateEventScreen(),
+      ),
+      GoRoute(
+        path: '/map',
+        name: 'map',
+        builder: (context, state) {
+          final lat = state.uri.queryParameters['lat'];
+          final lng = state.uri.queryParameters['lng'];
+          final eventId = state.uri.queryParameters['eventId'];
+          
+          return MapScreen(
+            initialLat: lat != null ? double.tryParse(lat) : null,
+            initialLng: lng != null ? double.tryParse(lng) : null,
+            eventId: eventId,
+          );
+        },
       ),
     ],
   );
