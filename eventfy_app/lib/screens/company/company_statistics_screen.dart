@@ -1,3 +1,5 @@
+import 'dart:developer';
+
 import '../../core/config/supabase_config.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -34,22 +36,50 @@ class _CompanyStatisticsScreenState extends State<CompanyStatisticsScreen> {
         throw Exception('Empresa não encontrada');
       }
       
-      // Buscar estatísticas dos eventos
+      // Buscar estatísticas dos eventos diretamente da tabela 'events'
+      // Importante: a view events_complete filtra apenas status = 'ativo',
+      // então não serve para contar finalizados/cancelados.
       final eventsResponse = await supabase
-          .from('events_complete')
+          .from('events')
           .select('id, status, total_attended, average_rating, total_reviews')
           .eq('company_id', company.id);
       
       final events = eventsResponse as List;
+      debugPrint('CompanyStatistics: eventos retornados=${events.length}');
       
       // Calcular estatísticas
       int totalEvents = events.length;
       int activeEvents = events.where((e) => e['status'] == 'ativo').length;
+      debugPrint('CompanyStatistics: activeEvents=$activeEvents');
       int finishedEvents = events.where((e) => e['status'] == 'finalizado').length;
+      debugPrint('CompanyStatistics: finishedEvents=$finishedEvents');
       int cancelledEvents = events.where((e) => e['status'] == 'cancelado').length;
+      debugPrint('CompanyStatistics: cancelledEvents=$cancelledEvents');
       
-      int totalParticipants = events.fold(0, (sum, event) => 
-          sum + (event['total_attended'] as int? ?? 0));
+      // Total de participantes que compareceram: contar somente status 'compareceu'
+      final eventIds = events.map((e) => e['id']).whereType<String>().toList();
+      int totalParticipants = 0;
+      if (eventIds.isNotEmpty) {
+        var query = supabase
+            .from('event_attendances')
+            .select('event_id')
+            .eq('status', 'compareceu');
+
+        if (eventIds.length == 1) {
+          // Compatível com qualquer versão do PostgrestFilterBuilder
+          debugPrint('CompanyStatistics: usando eq para único event_id=${eventIds.first}');
+          query = query.eq('event_id', eventIds.first);
+        } else {
+          // Fallback compatível: usar OR com múltiplos eq
+          final orFilter = eventIds.map((id) => 'event_id.eq.$id').join(',');
+          debugPrint('CompanyStatistics: usando or filter: $orFilter');
+          query = query.or(orFilter);
+        }
+
+        final attendancesResponse = await query;
+        totalParticipants = (attendancesResponse as List).length;
+      }
+      debugPrint('CompanyStatistics: totalParticipants(compareceu)=$totalParticipants');
       
       double averageRating = 0.0;
       int totalReviews = 0;

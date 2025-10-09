@@ -146,7 +146,6 @@ class EventsProvider with ChangeNotifier {
     
     try {
       print('DEBUG: Iniciando loadEvents...');
-      print('DEBUG: Data atual: ${DateTime.now().toIso8601String()}');
       
       // Primeiro, vamos buscar todos os eventos sem filtros para debug
       final allEventsResponse = await _supabase
@@ -168,25 +167,18 @@ class EventsProvider with ChangeNotifier {
             ''')
             .order('data_inicio', ascending: true);
       
-      final now = DateTime.now();
-        print('DEBUG: Aplicando filtros: status = ativo AND data_fim >= $now');
+        print('DEBUG: Aplicando filtros: status = ativo (servidor atualiza automaticamente)');
         
         // Aplicar filtros
         final filteredData = (response as List).where((event) {
           final status = event['status'] as String?;
           final dataFim = event['data_fim'] as String?;
-          
+
           if (status != 'ativo') {
             print('DEBUG: Evento ${event['id']} filtrado - status: $status');
             return false;
           }
-          if (dataFim != null) {
-            final eventEndDate = DateTime.parse(dataFim);
-            if (eventEndDate.isBefore(now)) {
-              print('DEBUG: Evento ${event['id']} filtrado - data fim: $dataFim');
-              return false;
-            }
-          }
+          // Não usar horário do dispositivo para filtrar; o status é mantido pelo servidor
           
           return true;
         }).toList();
@@ -269,9 +261,6 @@ class EventsProvider with ChangeNotifier {
     try {
       print('DEBUG: Iniciando busca de eventos por localização...');
       print('DEBUG: Centro: $latitude, $longitude - Raio: ${radiusKm}km');
-      print('DEBUG: Data atual: ${DateTime.now().toIso8601String()}');
-      
-      final now = DateTime.now();
       
       // Buscar eventos com filtros aplicados
       final response = await _supabase
@@ -285,10 +274,9 @@ class EventsProvider with ChangeNotifier {
             )
           ''')
           .eq('status', 'ativo')
-          .gte('data_fim', now.toIso8601String())
           .order('data_inicio', ascending: true);
       
-      print('DEBUG: Aplicando filtros: status = ativo AND data_fim >= $now');
+      print('DEBUG: Aplicando filtros: status = ativo (servidor atualiza automaticamente)');
       
       // Aplicar filtros
       final filteredData = (response as List).where((event) {
@@ -299,13 +287,7 @@ class EventsProvider with ChangeNotifier {
           print('DEBUG: Evento ${event['id']} filtrado - status: $status');
           return false;
         }
-        if (dataFim != null) {
-          final eventEndDate = DateTime.parse(dataFim);
-          if (eventEndDate.isBefore(now)) {
-            print('DEBUG: Evento ${event['id']} filtrado - data fim: $dataFim');
-            return false;
-          }
-        }
+        // Não usar horário do dispositivo para filtrar; o status é mantido pelo servidor
         
         return true;
       }).toList();

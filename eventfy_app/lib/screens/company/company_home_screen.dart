@@ -269,15 +269,49 @@ class _CompanyPastEventsTabState extends State<CompanyPastEventsTab> {
       
       if (company != null) {
         final response = await supabase
-            .from('events_complete')
-            .select()
+            .from('events')
+            .select('*')
             .eq('company_id', company.id)
-            .eq('status', 'finalizado')
+            .or('status.eq.finalizado,status.eq.cancelado')
             .order('data_inicio', ascending: false);
 
-        final List<EventModel> events = (response as List)
+        var events = (response as List)
             .map((json) => EventModel.fromJson(json))
             .toList();
+
+        // Atualizar contagem de participantes (compareceu) por evento
+        final eventIds = events.map((e) => e.id).toList();
+        if (eventIds.isNotEmpty) {
+          var query = supabase
+              .from('event_attendances')
+              .select('event_id')
+              .eq('status', 'compareceu');
+
+          if (eventIds.length == 1) {
+            debugPrint('PastEvents: usando eq para único event_id=${eventIds.first}');
+            query = query.eq('event_id', eventIds.first);
+          } else {
+            final orFilter = eventIds.map((id) => 'event_id.eq.$id').join(',');
+            debugPrint('PastEvents: usando or filter: $orFilter');
+            query = query.or(orFilter);
+          }
+
+          final attendancesResponse = await query;
+          final attendances = attendancesResponse as List;
+
+          final Map<String, int> attendedCounts = {};
+          for (var row in attendances) {
+            final id = row['event_id'] as String?;
+            if (id != null) {
+              attendedCounts[id] = (attendedCounts[id] ?? 0) + 1;
+            }
+          }
+
+          debugPrint('PastEvents: attendedCounts=$attendedCounts');
+          events = events
+              .map((e) => e.copyWith(totalAttended: attendedCounts[e.id] ?? e.totalAttended))
+              .toList();
+        }
 
         setState(() {
           _pastEvents = events;
@@ -692,6 +726,32 @@ class PastEventCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    Color _statusColor(String status) {
+      switch (status.toLowerCase()) {
+        case 'ativo':
+          return Colors.green;
+        case 'cancelado':
+          return Colors.red;
+        case 'finalizado':
+          return Colors.grey;
+        default:
+          return Colors.blue;
+      }
+    }
+
+    String _statusText(String status) {
+      switch (status.toLowerCase()) {
+        case 'ativo':
+          return 'ATIVO';
+        case 'cancelado':
+          return 'CANCELADO';
+        case 'finalizado':
+          return 'FINALIZADO';
+        default:
+          return status.toUpperCase();
+      }
+    }
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: InkWell(
@@ -719,12 +779,12 @@ class PastEventCard extends StatelessWidget {
                       vertical: 4,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.grey,
+                      color: _statusColor(event.status),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Text(
-                      'FINALIZADO',
-                      style: TextStyle(
+                    child: Text(
+                      _statusText(event.status),
+                      style: const TextStyle(
                         color: Colors.white,
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
@@ -838,7 +898,7 @@ class _PastEventDetailsSheetState extends State<PastEventDetailsSheet> {
             *,
             users!inner(
               nome,
-              foto_perfil_url
+              avatar_url
             )
           ''')
           .eq('event_id', widget.event.id)
@@ -849,7 +909,7 @@ class _PastEventDetailsSheetState extends State<PastEventDetailsSheet> {
             return EventReviewModel.fromJson({
               ...json,
               'user_name': json['users']['nome'],
-              'user_photo': json['users']['foto_perfil_url'],
+              'user_photo': json['users']['avatar_url'],
             });
           })
           .toList();

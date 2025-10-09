@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/config/supabase_config.dart';
+import '../../providers/auth_provider.dart';
+import '../../services/notification_service.dart';
 import '../../models/event_model.dart';
 import '../../widgets/common/custom_button.dart';
 import '../map/map_screen.dart';
@@ -10,8 +15,129 @@ class EventDetailsScreen extends StatelessWidget {
 
   const EventDetailsScreen({Key? key, required this.event}) : super(key: key);
 
+  // Exibe um prompt único perguntando se o usuário participou do evento (apenas para usuários, não empresas)
+  Future<void> _maybePromptAttendance(BuildContext context) async {
+    try {
+      final auth = Provider.of<AuthProvider>(context, listen: false);
+      // Apenas usuários pessoas físicas
+      if (auth.isCompany || auth.currentUser == null) return;
+
+      // Verifica janela de atividade do evento: status ativo e dentro do período (ou logo após)
+      final now = DateTime.now();
+      final bool isInActiveWindow =
+          event.status == 'ativo' &&
+          now.isAfter(event.dataInicio.subtract(const Duration(minutes: 15))) &&
+          now.isBefore(event.dataFim.add(const Duration(hours: 12)));
+      if (!isInActiveWindow) return;
+
+      final prefs = await SharedPreferences.getInstance();
+      final key = 'attendance_prompted_v1_${event.id}_${auth.currentUser!.id}';
+      if (prefs.getBool(key) == true) return; // já perguntado
+
+      // Se já houver registro de comparecimento, não perguntar e marcar como perguntado
+      final existing = await supabase
+          .from('event_attendances')
+          .select('status')
+          .eq('user_id', auth.currentUser!.id)
+          .eq('event_id', event.id)
+          .maybeSingle();
+      if (existing != null && (existing['status'] as String?) == 'compareceu') {
+        await prefs.setBool(key, true);
+        return;
+      }
+      
+      // Se o usuário já declarou que vai participar, perguntar se compareceu
+      final willParticipate = existing != null && (existing['status'] as String?) == 'confirmado';
+      if (!willParticipate) {
+        // Se não há registro de intenção, não mostrar o prompt ainda
+        return;
+      }
+
+      // Mostrar diálogo
+      // ignore: use_build_context_synchronously
+      final confirmed = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) {
+          return AlertDialog(
+            title: const Text('Você participou deste evento?'),
+            content: Text('Confirme sua presença em "${event.titulo}" para registrarmos no seu histórico.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('Não'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: const Text('Sim, participei'),
+              ),
+            ],
+          );
+        },
+      );
+
+      // Marcar que já perguntamos independente da resposta
+      await prefs.setBool(key, true);
+
+      if (confirmed == true) {
+        await _registerAttendance(context);
+      }
+    } catch (e) {
+      NotificationService.instance.showError('Erro ao verificar presença: $e');
+    }
+  }
+
+  Future<void> _registerAttendance(BuildContext context) async {
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    if (auth.currentUser == null) return;
+
+    try {
+      final payload = {
+        'user_id': auth.currentUser!.id,
+        'event_id': event.id,
+        'status': 'compareceu',
+        'checked_in_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
+      };
+
+      // upsert para evitar duplicata pela PK (user_id, event_id)
+      await supabase.from('event_attendances').upsert(payload);
+
+      NotificationService.instance.showSuccess('Presença registrada com sucesso!');
+    } catch (e) {
+      NotificationService.instance.showError('Não foi possível registrar sua presença: $e');
+    }
+  }
+
+  Future<void> _registerParticipationIntent(BuildContext context) async {
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    if (auth.currentUser == null) return;
+
+    try {
+      final payload = {
+        'user_id': auth.currentUser!.id,
+        'event_id': event.id,
+        'status': 'confirmado',
+        'checked_in_at': null,
+        'updated_at': DateTime.now().toIso8601String(),
+      };
+
+      // upsert para evitar duplicata pela PK (user_id, event_id)
+      await supabase.from('event_attendances').upsert(payload);
+
+      NotificationService.instance.showSuccess('Participação confirmada! Você receberá uma notificação quando o evento começar.');
+    } catch (e) {
+      NotificationService.instance.showError('Não foi possível confirmar sua participação: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Dispara verificação pós-frame para evitar setState durante build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _maybePromptAttendance(context);
+    });
+
     return Scaffold(
       body: Column(
         children: [
@@ -305,22 +431,36 @@ class EventDetailsScreen extends StatelessWidget {
                   const SizedBox(width: 16),
                   Expanded(
                     child: CustomButton(
-                      onPressed: () {
-                        // Aqui você pode adicionar lógica para participar/comprar
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              event.isGratuito 
-                                  ? 'Participação confirmada!' 
-                                  : 'Redirecionando para compra...',
+                      onPressed: () async {
+                        final auth = Provider.of<AuthProvider>(context, listen: false);
+                        if (auth.currentUser == null) return;
+                        
+                        final now = DateTime.now();
+                        final isActiveWindow = event.status == 'ativo' &&
+                            now.isAfter(event.dataInicio.subtract(const Duration(minutes: 15))) &&
+                            now.isBefore(event.dataFim.add(const Duration(hours: 12)));
+                        
+                        if (event.isGratuito) {
+                          if (isActiveWindow) {
+                            // Evento ativo: registrar presença diretamente
+                            await _registerAttendance(context);
+                          } else {
+                            // Evento futuro: registrar intenção de participar
+                            await _registerParticipationIntent(context);
+                          }
+                        } else {
+                          // Eventos pagos: fluxo original
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Redirecionando para compra...'),
+                              backgroundColor: Colors.green,
                             ),
-                            backgroundColor: Colors.green,
-                          ),
-                        );
+                          );
+                        }
                       },
                       color: Theme.of(context).primaryColor,
                       child: Text(
-                        event.isGratuito ? 'Participar' : 'Comprar Ingresso',
+                        _getButtonText(),
                         style: const TextStyle(color: Colors.white),
                       ),
                     ),
@@ -332,6 +472,23 @@ class EventDetailsScreen extends StatelessWidget {
         ],
       ),
     );
+  }
+  
+  String _getButtonText() {
+    if (!event.isGratuito) {
+      return 'Comprar Ingresso';
+    }
+    
+    final now = DateTime.now();
+    final isActiveWindow = event.status == 'ativo' &&
+        now.isAfter(event.dataInicio.subtract(const Duration(minutes: 15))) &&
+        now.isBefore(event.dataFim.add(const Duration(hours: 12)));
+    
+    if (isActiveWindow) {
+      return 'Registrar Presença';
+    } else {
+      return 'Vou Participar';
+    }
   }
   
   Widget _buildInfoSection(String title, String content, IconData icon, BuildContext context) {

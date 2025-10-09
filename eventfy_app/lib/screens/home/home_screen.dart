@@ -230,6 +230,15 @@ class ProfileTab extends StatelessWidget {
                 ),
                 
                 ListTile(
+                  leading: const Icon(Icons.history),
+                  title: const Text('Histórico de Eventos'),
+                  trailing: const Icon(Icons.arrow_forward_ios),
+                  onTap: () {
+                    context.pushNamed('attendance_history');
+                  },
+                ),
+                
+                ListTile(
                   leading: const Icon(Icons.notifications),
                   title: const Text('Notificações'),
                   trailing: const Icon(Icons.arrow_forward_ios),

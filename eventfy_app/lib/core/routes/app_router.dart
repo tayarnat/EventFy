@@ -11,6 +11,7 @@ import '../../screens/company/create_event_screen.dart';
 import '../../screens/onboarding/preferences_onboarding_screen.dart';
 import '../../screens/profile/profile_edit_screen.dart';
 import '../../screens/map/map_screen.dart';
+import '../../screens/profile/attendance_history_screen.dart';
 
 /// Classe responsável por gerenciar as rotas da aplicação usando GoRouter
 class AppRouter {
@@ -84,6 +85,11 @@ class AppRouter {
             eventId: eventId,
           );
         },
+      ),
+      GoRoute(
+        path: '/profile/history',
+        name: 'attendance_history',
+        builder: (context, state) => const AttendanceHistoryScreen(),
       ),
     ],
   );
