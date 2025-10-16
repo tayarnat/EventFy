@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/notification_service.dart';
+import '../../models/event_review_model.dart';
+import 'company_reviews_screen.dart';
 
 class CompanyStatisticsScreen extends StatefulWidget {
   @override
@@ -15,6 +17,7 @@ class _CompanyStatisticsScreenState extends State<CompanyStatisticsScreen> {
   bool _isLoading = true;
   Map<String, dynamic> _statistics = {};
   String? _errorMessage;
+  List<EventReviewModel> _companyReviews = [];
   
   @override
   void initState() {
@@ -125,6 +128,22 @@ class _CompanyStatisticsScreenState extends State<CompanyStatisticsScreen> {
         eventsByMonth[monthKey] = (eventsByMonth[monthKey] ?? 0) + 1;
       }
       
+      // Buscar avaliações recentes dos eventos da empresa via RPC SECURITY DEFINER
+      try {
+        final reviewsRes = await supabase.rpc('get_company_reviews', params: {
+          'p_company_id': company.id,
+          'p_limit': 50,
+          'p_offset': 0,
+        });
+        final reviews = (reviewsRes as List)
+            .map((e) => EventReviewModel.fromJson(e as Map<String, dynamic>))
+            .toList();
+        _companyReviews = reviews;
+      } catch (e) {
+        debugPrint('CompanyStatistics: erro ao carregar reviews: $e');
+        _companyReviews = [];
+      }
+
       setState(() {
         _statistics = {
           'totalEvents': totalEvents,
@@ -253,6 +272,41 @@ class _CompanyStatisticsScreenState extends State<CompanyStatisticsScreen> {
                         ],
                       ),
                       
+                      const SizedBox(height: 32),
+                      // Avaliações recentes
+                      const Text(
+                        'Avaliações Recentes',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: _companyReviews.isEmpty
+                              ? const Text('Nenhuma avaliação encontrada', style: TextStyle(color: Colors.grey))
+                              : Column(
+                                  children: _companyReviews.take(10).map((r) => _ReviewRow(review: r)).toList(),
+                                ),
+                        ),
+                      ),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton.icon(
+                          icon: const Icon(Icons.open_in_new),
+                          label: const Text('Ver todas as avaliações'),
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => const CompanyReviewsScreen(),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
                       const SizedBox(height: 32),
                       
                       // Status dos eventos
@@ -461,6 +515,78 @@ class _StatusRow extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+// Linha de avaliação resumida
+class _ReviewRow extends StatelessWidget {
+  final EventReviewModel review;
+  const _ReviewRow({required this.review});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 16,
+            backgroundColor: Theme.of(context).primaryColor,
+            backgroundImage: review.userPhoto != null ? NetworkImage(review.userPhoto!) : null,
+            child: review.userPhoto == null
+                ? Text(
+                    review.isAnonymous ? 'A' : (review.userName?.substring(0, 1).toUpperCase() ?? 'U'),
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  )
+                : null,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        review.isAnonymous ? 'Usuário Anônimo' : (review.userName ?? 'Usuário'),
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    Row(
+                      children: List.generate(5, (i) => Icon(
+                            i < review.rating ? Icons.star : Icons.star_border,
+                            size: 14,
+                            color: Colors.amber,
+                          )),
+                    ),
+                  ],
+                ),
+                if (review.eventTitle != null && review.eventTitle!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      review.eventTitle!,
+                      style: TextStyle(color: Colors.grey[600], fontStyle: FontStyle.italic),
+                    ),
+                  ),
+                if (review.titulo != null && review.titulo!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(review.titulo!, style: const TextStyle(fontWeight: FontWeight.w500)),
+                  ),
+                if (review.comentario != null && review.comentario!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(review.comentario!, style: TextStyle(color: Colors.grey[700])),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

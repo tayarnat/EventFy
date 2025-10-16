@@ -7,6 +7,8 @@ class EventReviewModel {
   final String id;
   final String userId;
   final String eventId;
+  // Título do evento, presente em RPCs agregadas (ex.: get_company_reviews)
+  final String? eventTitle;
   final int rating; // 1 a 5
   final String? titulo;
   final String? comentario;
@@ -23,6 +25,7 @@ class EventReviewModel {
     required this.id,
     required this.userId,
     required this.eventId,
+    this.eventTitle,
     required this.rating,
     this.titulo,
     this.comentario,
@@ -39,6 +42,7 @@ class EventReviewModel {
       id: json['id'] as String,
       userId: json['user_id'] as String,
       eventId: json['event_id'] as String,
+      eventTitle: json['event_title'] as String?,
       rating: json['rating'] as int,
       titulo: json['titulo'] as String?,
       comentario: json['comentario'] as String?,
@@ -88,6 +92,7 @@ class EventReviewModel {
     String? id,
     String? userId,
     String? eventId,
+    String? eventTitle,
     int? rating,
     String? titulo,
     String? comentario,
@@ -102,6 +107,7 @@ class EventReviewModel {
       id: id ?? this.id,
       userId: userId ?? this.userId,
       eventId: eventId ?? this.eventId,
+      eventTitle: eventTitle ?? this.eventTitle,
       rating: rating ?? this.rating,
       titulo: titulo ?? this.titulo,
       comentario: comentario ?? this.comentario,

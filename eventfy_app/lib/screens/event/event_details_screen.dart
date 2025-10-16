@@ -8,6 +8,8 @@ import '../../providers/auth_provider.dart';
 import '../../services/notification_service.dart';
 import '../../models/event_model.dart';
 import '../../widgets/common/custom_button.dart';
+import '../../widgets/event_reviews_sheet.dart';
+import '../../widgets/rate_event_sheet.dart';
 import '../map/map_screen.dart';
 
 class EventDetailsScreen extends StatelessWidget {
@@ -114,6 +116,18 @@ class EventDetailsScreen extends StatelessWidget {
     if (auth.currentUser == null) return;
 
     try {
+      // Não permitir confirmação se já houver presença registrada
+      final existing = await supabase
+          .from('event_attendances')
+          .select('status')
+          .eq('user_id', auth.currentUser!.id)
+          .eq('event_id', event.id)
+          .maybeSingle();
+      if (existing != null && (existing['status'] as String?) == 'compareceu') {
+        NotificationService.instance.showError('Você já registrou presença neste evento.');
+        return;
+      }
+
       final payload = {
         'user_id': auth.currentUser!.id,
         'event_id': event.id,
@@ -128,6 +142,46 @@ class EventDetailsScreen extends StatelessWidget {
       NotificationService.instance.showSuccess('Participação confirmada! Você receberá uma notificação quando o evento começar.');
     } catch (e) {
       NotificationService.instance.showError('Não foi possível confirmar sua participação: $e');
+    }
+  }
+
+  Future<String?> _getMyAttendanceStatus(BuildContext context) async {
+    try {
+      final auth = Provider.of<AuthProvider>(context, listen: false);
+      if (auth.currentUser == null) return null;
+      final existing = await supabase
+          .from('event_attendances')
+          .select('status')
+          .eq('user_id', auth.currentUser!.id)
+          .eq('event_id', event.id)
+          .maybeSingle();
+      return existing != null ? existing['status'] as String? : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _cancelParticipation(BuildContext context) async {
+    try {
+      final auth = Provider.of<AuthProvider>(context, listen: false);
+      if (auth.currentUser == null) return;
+
+      // Bloquear cancelamento se já compareceu
+      final status = await _getMyAttendanceStatus(context);
+      if (status == 'compareceu') {
+        NotificationService.instance.showError('Não é possível cancelar após registrar presença.');
+        return;
+      }
+
+      await supabase
+          .from('event_attendances')
+          .delete()
+          .eq('user_id', auth.currentUser!.id)
+          .eq('event_id', event.id);
+
+      NotificationService.instance.showSuccess('Participação cancelada.');
+    } catch (e) {
+      NotificationService.instance.showError('Erro ao cancelar participação: $e');
     }
   }
 
@@ -430,40 +484,193 @@ class EventDetailsScreen extends StatelessWidget {
                   ),
                   const SizedBox(width: 16),
                   Expanded(
-                    child: CustomButton(
-                      onPressed: () async {
-                        final auth = Provider.of<AuthProvider>(context, listen: false);
-                        if (auth.currentUser == null) return;
-                        
-                        final now = DateTime.now();
-                        final isActiveWindow = event.status == 'ativo' &&
-                            now.isAfter(event.dataInicio.subtract(const Duration(minutes: 15))) &&
-                            now.isBefore(event.dataFim.add(const Duration(hours: 12)));
-                        
-                        if (event.isGratuito) {
-                          if (isActiveWindow) {
-                            // Evento ativo: registrar presença diretamente
-                            await _registerAttendance(context);
-                          } else {
-                            // Evento futuro: registrar intenção de participar
-                            await _registerParticipationIntent(context);
-                          }
-                        } else {
-                          // Eventos pagos: fluxo original
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Redirecionando para compra...'),
-                              backgroundColor: Colors.green,
-                            ),
-                          );
-                        }
-                      },
-                      color: Theme.of(context).primaryColor,
-                      child: Text(
-                        _getButtonText(),
-                        style: const TextStyle(color: Colors.white),
-                      ),
-                    ),
+                    child: event.status == 'finalizado'
+                        ? FutureBuilder<String?>(
+                            future: _getMyAttendanceStatus(context),
+                            builder: (context, snapshot) {
+                              final myStatus = snapshot.data;
+                              if (myStatus == 'compareceu') {
+                                return Row(
+                                  children: [
+                                    Expanded(
+                                      child: CustomButton(
+                                        onPressed: () async {
+                                          // Abrir RateEventSheet (se usuário ainda não avaliou)
+                                          final auth = Provider.of<AuthProvider>(context, listen: false);
+                                          final userId = auth.currentUser?.id;
+                                          if (userId == null) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              const SnackBar(content: Text('Faça login para avaliar')),
+                                            );
+                                            return;
+                                          }
+                                          try {
+                                            final existing = await supabase
+                                                .from('event_reviews')
+                                                .select('id')
+                                                .eq('user_id', userId)
+                                                .eq('event_id', event.id)
+                                                .limit(1);
+                                            if (existing is List && existing.isNotEmpty) {
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                const SnackBar(content: Text('Você já avaliou este evento')),
+                                              );
+                                              return;
+                                            }
+                                          } catch (_) {}
+
+                                          // ignore: use_build_context_synchronously
+                                          showModalBottomSheet(
+                                            context: context,
+                                            isScrollControlled: true,
+                                            backgroundColor: Colors.transparent,
+                                            builder: (context) => DraggableScrollableSheet(
+                                              initialChildSize: 0.6,
+                                              minChildSize: 0.4,
+                                              maxChildSize: 0.9,
+                                              builder: (context, scrollController) {
+                                                return SingleChildScrollView(
+                                                  controller: scrollController,
+                                                  child: RateEventSheet(event: event),
+                                                );
+                                              },
+                                            ),
+                                          );
+                                        },
+                                        color: Theme.of(context).primaryColor,
+                                        child: const Text('Avaliar evento', style: TextStyle(color: Colors.white)),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: CustomButton(
+                                        onPressed: () {
+                                          showModalBottomSheet(
+                                            context: context,
+                                            isScrollControlled: true,
+                                            backgroundColor: Colors.transparent,
+                                            builder: (context) => DraggableScrollableSheet(
+                                              initialChildSize: 0.7,
+                                              minChildSize: 0.4,
+                                              maxChildSize: 0.95,
+                                              builder: (context, scrollController) {
+                                                return SingleChildScrollView(
+                                                  controller: scrollController,
+                                                  child: EventReviewsSheet(event: event),
+                                                );
+                                              },
+                                            ),
+                                          );
+                                        },
+                                        color: Theme.of(context).primaryColor,
+                                        child: const Text('Ver avaliações', style: TextStyle(color: Colors.white)),
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              }
+                              // Se não compareceu, mostrar apenas "Ver avaliações"
+                              return CustomButton(
+                                onPressed: () {
+                                  showModalBottomSheet(
+                                    context: context,
+                                    isScrollControlled: true,
+                                    backgroundColor: Colors.transparent,
+                                    builder: (context) => DraggableScrollableSheet(
+                                      initialChildSize: 0.7,
+                                      minChildSize: 0.4,
+                                      maxChildSize: 0.95,
+                                      builder: (context, scrollController) {
+                                        return SingleChildScrollView(
+                                          controller: scrollController,
+                                          child: EventReviewsSheet(event: event),
+                                        );
+                                      },
+                                    ),
+                                  );
+                                },
+                                color: Theme.of(context).primaryColor,
+                                child: const Text('Ver avaliações', style: TextStyle(color: Colors.white)),
+                              );
+                            },
+                          )
+                        : FutureBuilder<String?>(
+                            future: _getMyAttendanceStatus(context),
+                            builder: (context, snapshot) {
+                              final myStatus = snapshot.data;
+                              final now = DateTime.now();
+                              final isActiveWindow = event.status == 'ativo' &&
+                                  now.isAfter(event.dataInicio.subtract(const Duration(minutes: 15))) &&
+                                  now.isBefore(event.dataFim.add(const Duration(hours: 12)));
+
+                              if (myStatus == 'compareceu') {
+                                return CustomButton(
+                                  onPressed: () {},
+                                  color: Colors.grey,
+                                  child: const Text('Presença registrada', style: TextStyle(color: Colors.white)),
+                                );
+                              }
+
+                              // Único botão principal, alternando entre "Registrar presença", "Vou participar" ou "Cancelar participação"
+                              // conforme status do usuário e janela ativa.
+                              final auth = Provider.of<AuthProvider>(context, listen: false);
+                              if (auth.currentUser == null) {
+                                return CustomButton(
+                                  onPressed: () {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Faça login para continuar')),
+                                    );
+                                  },
+                                  color: Theme.of(context).primaryColor,
+                                  child: const Text('Entrar', style: TextStyle(color: Colors.white)),
+                                );
+                              }
+
+                              if (!event.isGratuito) {
+                                return CustomButton(
+                                  onPressed: () {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Redirecionando para compra...'),
+                                        backgroundColor: Colors.green,
+                                      ),
+                                    );
+                                  },
+                                  color: Theme.of(context).primaryColor,
+                                  child: const Text('Comprar Ingresso', style: TextStyle(color: Colors.white)),
+                                );
+                              }
+
+                              if (isActiveWindow) {
+                                return CustomButton(
+                                  onPressed: () async {
+                                    await _registerAttendance(context);
+                                  },
+                                  color: Theme.of(context).primaryColor,
+                                  child: const Text('Registrar Presença', style: TextStyle(color: Colors.white)),
+                                );
+                              }
+
+                              // Fora da janela ativa
+                              if (myStatus == 'confirmado') {
+                                return CustomButton(
+                                  onPressed: () async {
+                                    await _cancelParticipation(context);
+                                  },
+                                  color: Theme.of(context).primaryColor,
+                                  child: const Text('Cancelar participação', style: TextStyle(color: Colors.white)),
+                                );
+                              }
+
+                              return CustomButton(
+                                onPressed: () async {
+                                  await _registerParticipationIntent(context);
+                                },
+                                color: Theme.of(context).primaryColor,
+                                child: const Text('Vou Participar', style: TextStyle(color: Colors.white)),
+                              );
+                            },
+                          ),
                   ),
                 ],
               ),

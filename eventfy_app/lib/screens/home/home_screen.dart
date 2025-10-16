@@ -8,6 +8,7 @@ import '../../widgets/event_card.dart';
 import '../../models/event_model.dart';
 import '../map/map_screen.dart';
 import '../event/event_details_screen.dart';
+import '../../services/rate_event_notifications_service.dart';
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -75,6 +76,9 @@ class _HomeTabState extends State<HomeTab> with SingleTickerProviderStateMixin {
       if (preferencesProvider.categories.isEmpty) {
         preferencesProvider.loadCategories();
       }
+
+      // Verificar notificações de avaliação pós-evento e abrir a folha de avaliação se houver
+      RateEventNotificationsService.checkAndPrompt(context);
     });
   }
 

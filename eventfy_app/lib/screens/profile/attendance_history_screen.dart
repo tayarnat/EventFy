@@ -7,6 +7,8 @@ import '../../core/config/supabase_config.dart';
 import '../../models/event_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../widgets/event_card.dart';
+import '../../widgets/rate_event_sheet.dart';
+import '../../widgets/event_reviews_sheet.dart';
 import '../event/event_details_screen.dart';
 
 class AttendanceHistoryScreen extends StatefulWidget {
@@ -234,6 +236,80 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
                         fontWeight: FontWeight.w500,
                       ),
                     ),
+                    const Spacer(),
+                    if (event.status == 'finalizado') ...[
+                      TextButton.icon(
+                        icon: const Icon(Icons.rate_review, size: 16),
+                        label: const Text('Avaliar evento'),
+                        onPressed: () async {
+                          // Verificar se usuário já avaliou
+                          final auth = Provider.of<AuthProvider>(context, listen: false);
+                          final userId = auth.currentUser?.id;
+                          if (userId == null) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Faça login para avaliar')), 
+                            );
+                            return;
+                          }
+
+                          try {
+                            final existing = await supabase
+                                .from('event_reviews')
+                                .select('id')
+                                .eq('user_id', userId)
+                                .eq('event_id', event.id)
+                                .limit(1);
+
+                            if (existing is List && existing.isNotEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Você já avaliou este evento')), 
+                              );
+                              return;
+                            }
+                          } catch (_) {}
+
+                          showModalBottomSheet(
+                            context: context,
+                            isScrollControlled: true,
+                            backgroundColor: Colors.transparent,
+                            builder: (context) => DraggableScrollableSheet(
+                              initialChildSize: 0.6,
+                              minChildSize: 0.4,
+                              maxChildSize: 0.9,
+                              builder: (context, scrollController) {
+                                return SingleChildScrollView(
+                                  controller: scrollController,
+                                  child: RateEventSheet(event: event),
+                                );
+                              },
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                      TextButton.icon(
+                        icon: const Icon(Icons.list_alt, size: 16),
+                        label: const Text('Ver avaliações'),
+                        onPressed: () {
+                          showModalBottomSheet(
+                            context: context,
+                            isScrollControlled: true,
+                            backgroundColor: Colors.transparent,
+                            builder: (context) => DraggableScrollableSheet(
+                              initialChildSize: 0.7,
+                              minChildSize: 0.4,
+                              maxChildSize: 0.95,
+                              builder: (context, scrollController) {
+                                return SingleChildScrollView(
+                                  controller: scrollController,
+                                  child: EventReviewsSheet(event: event),
+                                );
+                              },
+                            ),
+                          );
+                        },
+                      ),
+                    ],
                   ],
                 ),
               ),

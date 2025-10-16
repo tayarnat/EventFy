@@ -337,21 +337,54 @@ CREATE TRIGGER update_events_updated_at BEFORE UPDATE ON events FOR EACH ROW EXE
 -- Função para atualizar estatísticas de empresa
 CREATE OR REPLACE FUNCTION update_company_stats()
 RETURNS TRIGGER AS $$
+DECLARE
+    target_event UUID;
+    target_company UUID;
 BEGIN
-    -- Atualizar total de eventos
+    -- Descobrir o evento e a empresa associados à avaliação
+    target_event := COALESCE(NEW.event_id, OLD.event_id);
+
+    IF target_event IS NULL THEN
+        RETURN COALESCE(NEW, OLD);
+    END IF;
+
+    SELECT company_id INTO target_company
+    FROM events
+    WHERE id = target_event;
+
+    -- Se não encontrar empresa, apenas retorna
+    IF target_company IS NULL THEN
+        RETURN COALESCE(NEW, OLD);
+    END IF;
+
+    -- Atualizar estatísticas da empresa (total de eventos e média de avaliações)
     UPDATE companies SET 
         total_events_created = (
-            SELECT COUNT(*) FROM events WHERE company_id = NEW.company_id
+            SELECT COUNT(*) FROM events WHERE company_id = target_company
         ),
-        -- Atualizar rating médio baseado nas avaliações dos eventos
         average_rating = (
             SELECT COALESCE(AVG(er.rating), 0)
             FROM event_reviews er
             JOIN events e ON er.event_id = e.id
-            WHERE e.company_id = NEW.company_id
+            WHERE e.company_id = target_company
         )
-    WHERE id = NEW.company_id;
-    RETURN NEW;
+    WHERE id = target_company;
+
+    -- Atualizar agregados do próprio evento (média e total de reviews)
+    UPDATE events SET
+        average_rating = (
+            SELECT COALESCE(AVG(r.rating), 0)
+            FROM event_reviews r
+            WHERE r.event_id = target_event
+        ),
+        total_reviews = (
+            SELECT COUNT(*) 
+            FROM event_reviews r
+            WHERE r.event_id = target_event
+        )
+    WHERE id = target_event;
+
+    RETURN COALESCE(NEW, OLD);
 END;
 $$ language 'plpgsql';
 
@@ -380,6 +413,62 @@ $$ language 'plpgsql';
 CREATE TRIGGER update_event_capacity_trigger
     AFTER INSERT OR UPDATE OR DELETE ON event_attendances
     FOR EACH ROW EXECUTE FUNCTION update_event_capacity();
+
+-- ============================================
+-- Notificações de avaliação pós-evento
+-- ============================================
+
+-- Função: ao finalizar um evento, criar notificações de avaliação para usuários que
+-- compareceram ou confirmaram presença
+CREATE OR REPLACE FUNCTION create_rate_event_notifications()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Somente quando status muda para 'finalizado'
+    IF TG_OP = 'UPDATE' AND NEW.status = 'finalizado' AND (OLD.status IS DISTINCT FROM 'finalizado') THEN
+        INSERT INTO notifications (
+            user_id,
+            titulo,
+            mensagem,
+            tipo,
+            related_event_id,
+            related_company_id,
+            is_read,
+            sent_at
+        )
+        SELECT 
+            ea.user_id,
+            'Avalie o evento',
+            COALESCE('Como foi sua experiência no evento "' || NEW.titulo || '"? Deixe sua avaliação.', 'Como foi sua experiência no evento?'),
+            'rate_event',
+            NEW.id,
+            NEW.company_id,
+            FALSE,
+            NOW()
+        FROM event_attendances ea
+        WHERE ea.event_id = NEW.id
+          AND ea.status IN ('compareceu', 'confirmado');
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Trigger: após atualização de eventos, se finalizado, criar notificações de avaliação
+DROP TRIGGER IF EXISTS create_rate_event_notifications_trigger ON events;
+CREATE TRIGGER create_rate_event_notifications_trigger
+AFTER UPDATE ON events
+FOR EACH ROW
+EXECUTE FUNCTION create_rate_event_notifications();
+
+-- RLS para notifications
+ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users can read own notifications" ON notifications;
+CREATE POLICY "Users can read own notifications" ON notifications
+FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can update own notifications read flag" ON notifications;
+CREATE POLICY "Users can update own notifications read flag" ON notifications
+FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 -- ============================================
 -- VIEWS ÚTEIS
@@ -550,3 +639,161 @@ PRÓXIMOS PASSOS:
 - Configurar integração com mapas no Flutter
 - Implementar sistema de notificações push
 */
+-- =========================================
+-- RLS policies for event_reviews
+-- Ensures users can insert/read their own reviews and updates are limited to owners.
+-- Reviews are readable by authenticated users (public within the app),
+-- and we enforce one review per user per event via a unique index.
+-- =========================================
+
+-- Enable RLS on event_reviews
+ALTER TABLE event_reviews ENABLE ROW LEVEL SECURITY;
+
+-- Allow authenticated users to read reviews (public within the app)
+DROP POLICY IF EXISTS event_reviews_select_public ON event_reviews;
+CREATE POLICY event_reviews_select_public
+ON event_reviews
+FOR SELECT
+TO authenticated
+USING (true);
+
+-- Allow insert only if the user is authenticated and actually attended the event
+-- (requires presence in event_attendances with status 'compareceu' or checked_in_at not null)
+DROP POLICY IF EXISTS event_reviews_insert_attendee ON event_reviews;
+CREATE POLICY event_reviews_insert_attendee
+ON event_reviews
+FOR INSERT
+TO authenticated
+WITH CHECK (
+  user_id = auth.uid()
+  AND EXISTS (
+    SELECT 1
+    FROM event_attendances ea
+    WHERE ea.event_id = event_reviews.event_id
+      AND ea.user_id = auth.uid()
+      AND (ea.status = 'compareceu' OR ea.checked_in_at IS NOT NULL)
+  )
+);
+
+-- Allow users to update their own reviews
+DROP POLICY IF EXISTS event_reviews_update_own ON event_reviews;
+CREATE POLICY event_reviews_update_own
+ON event_reviews
+FOR UPDATE
+TO authenticated
+USING (user_id = auth.uid())
+WITH CHECK (user_id = auth.uid());
+
+-- Allow users to delete their own reviews (optional)
+DROP POLICY IF EXISTS event_reviews_delete_own ON event_reviews;
+CREATE POLICY event_reviews_delete_own
+ON event_reviews
+FOR DELETE
+TO authenticated
+USING (user_id = auth.uid());
+
+-- ============================================
+-- Funções RPC para leitura de avaliações com dados públicos de usuário
+-- ============================================
+
+-- Retorna avaliações de um evento com nome e avatar do usuário
+-- Respeita anonimato: se is_anonymous = true, user_name/user_photo retornam NULL
+CREATE OR REPLACE FUNCTION get_event_reviews_with_user(
+  p_event_id UUID,
+  p_limit INTEGER DEFAULT 50,
+  p_offset INTEGER DEFAULT 0
+)
+RETURNS TABLE (
+  id UUID,
+  user_id UUID,
+  event_id UUID,
+  rating INTEGER,
+  titulo VARCHAR,
+  comentario TEXT,
+  is_anonymous BOOLEAN,
+  helpful_votes INTEGER,
+  created_at TIMESTAMP WITH TIME ZONE,
+  updated_at TIMESTAMP WITH TIME ZONE,
+  user_name VARCHAR,
+  user_photo TEXT
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    er.id,
+    er.user_id,
+    er.event_id,
+    er.rating,
+    er.titulo,
+    er.comentario,
+    er.is_anonymous,
+    er.helpful_votes,
+    er.created_at,
+    er.updated_at,
+    CASE WHEN er.is_anonymous THEN NULL ELSE u.nome END AS user_name,
+    CASE WHEN er.is_anonymous THEN NULL ELSE u.avatar_url END AS user_photo
+  FROM event_reviews er
+  JOIN users u ON u.id = er.user_id
+  WHERE er.event_id = p_event_id
+  ORDER BY er.created_at DESC
+  LIMIT p_limit OFFSET p_offset;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION get_event_reviews_with_user(UUID, INTEGER, INTEGER) TO authenticated;
+
+-- Retorna avaliações de eventos de uma empresa, com título do evento
+-- Restrito à própria empresa: só retorna dados se p_company_id = auth.uid()
+CREATE OR REPLACE FUNCTION get_company_reviews(
+  p_company_id UUID,
+  p_limit INTEGER DEFAULT 50,
+  p_offset INTEGER DEFAULT 0
+)
+RETURNS TABLE (
+  id UUID,
+  user_id UUID,
+  event_id UUID,
+  event_title VARCHAR,
+  rating INTEGER,
+  titulo VARCHAR,
+  comentario TEXT,
+  is_anonymous BOOLEAN,
+  helpful_votes INTEGER,
+  created_at TIMESTAMP WITH TIME ZONE,
+  updated_at TIMESTAMP WITH TIME ZONE,
+  user_name VARCHAR,
+  user_photo TEXT
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    er.id,
+    er.user_id,
+    er.event_id,
+    e.titulo AS event_title,
+    er.rating,
+    er.titulo,
+    er.comentario,
+    er.is_anonymous,
+    er.helpful_votes,
+    er.created_at,
+    er.updated_at,
+    CASE WHEN er.is_anonymous THEN NULL ELSE u.nome END AS user_name,
+    CASE WHEN er.is_anonymous THEN NULL ELSE u.avatar_url END AS user_photo
+  FROM event_reviews er
+  JOIN events e ON e.id = er.event_id
+  JOIN users u ON u.id = er.user_id
+  WHERE e.company_id = p_company_id
+    AND p_company_id = auth.uid()
+  ORDER BY er.created_at DESC
+  LIMIT p_limit OFFSET p_offset;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION get_company_reviews(UUID, INTEGER, INTEGER) TO authenticated;

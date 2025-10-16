@@ -892,27 +892,16 @@ class _PastEventDetailsSheetState extends State<PastEventDetailsSheet> {
     });
 
     try {
-      final response = await supabase
-          .from('event_reviews')
-          .select('''
-            *,
-            users!inner(
-              nome,
-              avatar_url
-            )
-          ''')
-          .eq('event_id', widget.event.id)
-          .order('created_at', ascending: false);
+      // Usar RPC com SECURITY DEFINER para contornar RLS de users
+      final response = await supabase.rpc('get_event_reviews_with_user', params: {
+        'p_event_id': widget.event.id,
+        'p_limit': 100,
+        'p_offset': 0,
+      });
 
-      final List<EventReviewModel> reviews = (response as List)
-          .map((json) {
-            return EventReviewModel.fromJson({
-              ...json,
-              'user_name': json['users']['nome'],
-              'user_photo': json['users']['avatar_url'],
-            });
-          })
-          .toList();
+      final List<EventReviewModel> reviews = (response as List).map((json) {
+        return EventReviewModel.fromJson(json as Map<String, dynamic>);
+      }).toList();
 
       setState(() {
         _reviews = reviews;
