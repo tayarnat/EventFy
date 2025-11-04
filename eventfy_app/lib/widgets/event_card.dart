@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import '../models/event_model.dart';
 
 class EventCard extends StatelessWidget {
@@ -144,10 +145,22 @@ class EventCard extends StatelessWidget {
                       color: Colors.grey[600],
                     ),
                     const SizedBox(width: 4),
-                    Text(
-                      event.empresaNome!,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w500,
+                    InkWell(
+                      onTap: () {
+                        context.pushNamed(
+                          'company_details',
+                          queryParameters: {
+                            'id': event.companyId,
+                          },
+                        );
+                      },
+                      child: Text(
+                        event.empresaNome!,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.w500,
+                          color: Theme.of(context).primaryColor,
+                          decoration: TextDecoration.underline,
+                        ),
                       ),
                     ),
                     if (event.empresaRating != null) ...[
@@ -318,6 +331,37 @@ class CompactEventCard extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: TextStyle(color: Colors.grey[500], fontSize: 12),
             ),
+            if (event.empresaNome != null) ...[
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Text(
+                    'por ',
+                    style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                  ),
+                  InkWell(
+                    onTap: () {
+                      context.pushNamed(
+                        'company_details',
+                        queryParameters: {
+                          'id': event.companyId,
+                        },
+                      );
+                    },
+                    child: Text(
+                      event.empresaNome!,
+                      style: TextStyle(
+                        color: Theme.of(context).primaryColor,
+                        fontSize: 12,
+                        decoration: TextDecoration.underline,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
         trailing: Column(

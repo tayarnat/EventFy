@@ -34,6 +34,9 @@ class _MapScreenState extends State<MapScreen> {
   EventModel? _selectedEvent;
   bool _showingEventDetails = false;
   Map<String, BitmapDescriptor> _customMarkers = {};
+  // NOVOS CONTROLES DE ZOOM/ESCALA PARA MARCADORES
+  double _currentZoom = 14.0;
+  double _currentScale = 1.5;
   
   // Localização padrão (São Paulo) caso não consiga obter a localização
   static const CameraPosition _defaultPosition = CameraPosition(
@@ -77,6 +80,9 @@ class _MapScreenState extends State<MapScreen> {
             16.0, // Zoom maior para focar no evento
           ),
         );
+        // Atualiza escala conforme o zoom inicial
+        _currentZoom = 16.0;
+        _currentScale = _getScaleForZoom(_currentZoom);
         
         // Se temos um eventId, destacar o evento
         if (widget.eventId != null) {
@@ -92,6 +98,9 @@ class _MapScreenState extends State<MapScreen> {
               14.0,
             ),
           );
+          // Atualiza escala conforme o zoom inicial
+          _currentZoom = 14.0;
+          _currentScale = _getScaleForZoom(_currentZoom);
         }
       }
     }
@@ -108,6 +117,7 @@ class _MapScreenState extends State<MapScreen> {
             event.fotoPrincipalUrl,
             eventTitle: event.titulo,
             isGratuito: event.isGratuito,
+            scaleFactor: _currentScale,
           );
           _customMarkers[event.id] = customMarker;
         } catch (e) {
@@ -118,7 +128,7 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  Future<BitmapDescriptor> _createCustomMarker(String? imageUrl, {required String eventTitle, bool isGratuito = true}) async {
+  Future<BitmapDescriptor> _createCustomMarker(String? imageUrl, {required String eventTitle, bool isGratuito = true, double scaleFactor = 1.5}) async {
     try {
       // Criar um canvas para desenhar o marcador personalizado
       final ui.PictureRecorder recorder = ui.PictureRecorder();
@@ -233,8 +243,8 @@ class _MapScreenState extends State<MapScreen> {
       // Finalizar o desenho
       final ui.Picture picture = recorder.endRecording();
       final ui.Image markerImage = await picture.toImage(
-        (size.width * 1.5).toInt(),
-        (size.height * 1.5).toInt(),
+        (size.width * scaleFactor).toInt(),
+        (size.height * scaleFactor).toInt(),
       );
       
       // Converter para bytes
@@ -316,6 +326,9 @@ class _MapScreenState extends State<MapScreen> {
           markerId: MarkerId(event.id),
           position: LatLng(event.latitude, event.longitude),
           icon: markerIcon,
+          anchor: _customMarkers.containsKey(event.id)
+              ? const Offset(0.5, 0.79) // ancora na ponta do pin personalizado
+              : const Offset(0.5, 1.0), // default para ícone padrão
           infoWindow: InfoWindow(
             title: event.titulo,
             snippet: snippet,
@@ -390,11 +403,46 @@ class _MapScreenState extends State<MapScreen> {
   void _onCameraMove(CameraPosition position) {
     // Cancelar timer anterior se existir
     _searchTimer?.cancel();
+
+    // Atualizar escala dos ícones quando o zoom mudar de faixa
+    final double newScale = _getScaleForZoom(position.zoom);
+    if (newScale != _currentScale) {
+      _currentScale = newScale;
+      _rescaleMarkersForZoom(position.zoom);
+    }
     
     // Criar novo timer com debounce de 1 segundo
     _searchTimer = Timer(const Duration(seconds: 1), () {
       _searchInCurrentArea();
     });
+  }
+
+  double _getScaleForZoom(double zoom) {
+    if (zoom >= 16.0) return 1.8; // mais detalhes no zoom alto
+    if (zoom >= 14.0) return 1.5; // padrão
+    if (zoom >= 12.0) return 1.2; // um pouco menor em zoom médio
+    return 1.0; // pequeno em zoom baixo
+  }
+
+  Future<void> _rescaleMarkersForZoom(double zoom) async {
+    final eventsProvider = Provider.of<EventsProvider>(context, listen: false);
+    final events = eventsProvider.filteredEvents;
+
+    for (final event in events) {
+      try {
+        final customMarker = await _createCustomMarker(
+          event.fotoPrincipalUrl,
+          eventTitle: event.titulo,
+          isGratuito: event.isGratuito,
+          scaleFactor: _currentScale,
+        );
+        _customMarkers[event.id] = customMarker;
+      } catch (_) {
+        // Se falhar, mantemos o ícone anterior
+      }
+    }
+
+    _updateMarkers();
   }
   
   void _searchInCurrentArea() {
@@ -837,74 +885,7 @@ class _MapScreenState extends State<MapScreen> {
                   ),
                 ),
               
-              // Legenda de cores
-              Positioned(
-                left: 16,
-                bottom: _showingEventDetails ? 320 : 100,
-                child: Card(
-                  elevation: 4,
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Legenda',
-                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        _buildLegendItem(Colors.purple, 'Música'),
-                        _buildLegendItem(Colors.green, 'Esporte'),
-                        _buildLegendItem(Colors.orange, 'Cultura'),
-                        _buildLegendItem(Colors.blue, 'Tecnologia'),
-                        _buildLegendItem(Colors.red, 'Gastronomia'),
-                        const SizedBox(height: 4),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 12,
-                              height: 12,
-                              decoration: BoxDecoration(
-                                color: Colors.green,
-                                shape: BoxShape.circle,
-                                border: Border.all(color: Colors.white, width: 2),
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            const Text('Gratuito', style: TextStyle(fontSize: 12)),
-                          ],
-                        ),
-                        const SizedBox(height: 2),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 12,
-                              height: 12,
-                              decoration: BoxDecoration(
-                                color: Colors.orange,
-                                shape: BoxShape.circle,
-                                border: Border.all(color: Colors.white, width: 2),
-                              ),
-                              child: const Icon(
-                                Icons.attach_money,
-                                size: 8,
-                                color: Colors.white,
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            const Text('Pago', style: TextStyle(fontSize: 12)),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
+              // Legenda removida (não utilizada)
               
               // Detalhes do evento selecionado
               if (_showingEventDetails && _selectedEvent != null)

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/user_model.dart';
 import '../models/company_model.dart';
@@ -238,7 +239,8 @@ class AuthProvider extends ChangeNotifier implements Listenable {
         password: password,
       );
 
-      if (response.user?.emailConfirmedAt == null) {
+      // Em ambiente de desenvolvimento (debug), não bloquear por email não confirmado
+      if (response.user?.emailConfirmedAt == null && !kDebugMode) {
         _setError('Erro no login: Email não confirmado');
         return false;
       }

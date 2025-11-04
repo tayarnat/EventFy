@@ -226,10 +226,10 @@ class ProfileTab extends StatelessWidget {
                 
                 ListTile(
                   leading: const Icon(Icons.favorite),
-                  title: const Text('Eventos Favoritos'),
+                  title: const Text('Eventos e Empresas Favoritos'),
                   trailing: const Icon(Icons.arrow_forward_ios),
                   onTap: () {
-                    // TODO: Implementar favoritos
+                    context.pushNamed('favorites');
                   },
                 ),
                 

@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/config/supabase_config.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/favorites_provider.dart';
 import '../../services/notification_service.dart';
 import '../../models/event_model.dart';
 import '../../widgets/common/custom_button.dart';
@@ -190,6 +191,8 @@ class EventDetailsScreen extends StatelessWidget {
     // Dispara verificação pós-frame para evitar setState durante build
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _maybePromptAttendance(context);
+      // Pré-carrega estado de favorito no cache para refletir corretamente no UI
+      Provider.of<FavoritesProvider>(context, listen: false).isEventFavorited(event.id);
     });
 
     return Scaffold(
@@ -274,6 +277,38 @@ class EventDetailsScreen extends StatelessWidget {
                       icon: const Icon(Icons.arrow_back, color: Colors.white),
                       onPressed: () => Navigator.pop(context),
                     ),
+                  ),
+                ),
+                // Botão de favoritar
+                Positioned(
+                  top: MediaQuery.of(context).padding.top + 8,
+                  right: 8,
+                  child: Consumer<FavoritesProvider>(
+                    builder: (context, favs, _) {
+                      final isFav = favs.isEventFavoritedCached(event.id);
+                      return Container(
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.5),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: IconButton(
+                          icon: Icon(
+                            isFav ? Icons.favorite : Icons.favorite_border,
+                            color: isFav ? Colors.redAccent : Colors.white,
+                          ),
+                          onPressed: () async {
+                            try {
+                              await favs.toggleEventFavorite(event);
+                              NotificationService.instance.showSuccess(
+                                isFav ? 'Removido dos favoritos' : 'Adicionado aos favoritos',
+                              );
+                            } catch (e) {
+                              NotificationService.instance.showError('Não foi possível atualizar favorito: $e');
+                            }
+                          },
+                        ),
+                      );
+                    },
                   ),
                 ),
               ],
@@ -363,6 +398,68 @@ class EventDetailsScreen extends StatelessWidget {
                         const SizedBox(height: 16),
                       ],
                     ),
+
+                    // Empresa responsável
+                    if (event.empresaNome != null)
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Organizado por',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              if (event.empresaLogo != null && event.empresaLogo!.isNotEmpty)
+                                CircleAvatar(
+                                  radius: 16,
+                                  backgroundImage: NetworkImage(event.empresaLogo!),
+                                )
+                              else
+                                const CircleAvatar(
+                                  radius: 16,
+                                  child: Icon(Icons.business, size: 16),
+                                ),
+                              const SizedBox(width: 8),
+                              InkWell(
+                                onTap: () {
+                                  context.pushNamed(
+                                    'company_details',
+                                    queryParameters: {
+                                      'id': event.companyId,
+                                    },
+                                  );
+                                },
+                                child: Text(
+                                  event.empresaNome!,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Theme.of(context).primaryColor,
+                                    decoration: TextDecoration.underline,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              if (event.empresaRating != null)
+                                Row(
+                                  children: [
+                                    const Icon(Icons.star, color: Colors.amber, size: 16),
+                                    const SizedBox(width: 2),
+                                    Text(
+                                      event.empresaRating!.toStringAsFixed(1),
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                                  ],
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                        ],
+                      ),
                   
                   // Data e hora
                   _buildInfoSection(

@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
 import 'core/config/supabase_config.dart';
 import 'core/routes/app_router.dart';
 import 'providers/auth_provider.dart';
 import 'providers/preferences_provider.dart';
 import 'providers/events_provider.dart';
+import 'providers/favorites_provider.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/register_screen.dart';
 import 'screens/home/home_screen.dart';
@@ -43,19 +44,13 @@ class NotificationNavigatorObserver extends NavigatorObserver {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  try {
-    // Inicializar Supabase
-    await SupabaseConfig.initialize();
-    NotificationService().showInfo('Supabase inicializado com sucesso!', showInConsole: true);
-  } catch (e) {
-    NotificationService().showError('Erro ao inicializar Supabase: $e', showInConsole: true);
-  }
-  
-  runApp(MyApp());
+  await SupabaseConfig.initialize();
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
+  const MyApp({Key? key}) : super(key: key);
+
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
@@ -63,6 +58,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => PreferencesProvider()),
         ChangeNotifierProvider(create: (_) => EventsProvider()),
+        ChangeNotifierProvider(create: (_) => FavoritesProvider()),
       ],
       child: Builder(
         builder: (context) {

@@ -12,7 +12,6 @@ RETURNS TABLE (
   titulo VARCHAR(200),
   descricao TEXT,
   endereco VARCHAR(200),
-  location GEOGRAPHY(POINT, 4326),
   data_inicio TIMESTAMP WITH TIME ZONE,
   data_fim TIMESTAMP WITH TIME ZONE,
   valor DECIMAL(10,2),
@@ -23,7 +22,7 @@ RETURNS TABLE (
   foto_principal_url TEXT,
   link_externo TEXT,
   link_streaming TEXT,
-  status VARCHAR(20),
+  status event_status,
   is_online BOOLEAN,
   is_presencial BOOLEAN,
   requires_approval BOOLEAN,
@@ -35,10 +34,14 @@ RETURNS TABLE (
   total_reviews INTEGER,
   created_at TIMESTAMP WITH TIME ZONE,
   updated_at TIMESTAMP WITH TIME ZONE,
-  companies JSONB,
+  latitude DOUBLE PRECISION,
+  longitude DOUBLE PRECISION,
+  empresa_nome TEXT,
+  empresa_logo TEXT,
+  empresa_rating NUMERIC(3,2),
   distance_km DOUBLE PRECISION
 )
-LANGUAGE plpgsql
+LANGUAGE plpgsql SECURITY DEFINER
 AS $$
 BEGIN
   RETURN QUERY
@@ -48,7 +51,6 @@ BEGIN
     e.titulo,
     e.descricao,
     e.endereco,
-    e.location,
     e.data_inicio,
     e.data_fim,
     e.valor,
@@ -71,15 +73,15 @@ BEGIN
     e.total_reviews,
     e.created_at,
     e.updated_at,
-    jsonb_build_object(
-      'nome_fantasia', c.nome_fantasia,
-      'logo_url', c.logo_url,
-      'average_rating', c.average_rating
-    ) as companies,
+    ST_Y(e.location::geometry) AS latitude,
+    ST_X(e.location::geometry) AS longitude,
+    c.nome_fantasia::text AS empresa_nome,
+    c.logo_url::text AS empresa_logo,
+    c.average_rating AS empresa_rating,
     ST_Distance(
       e.location::geography,
       ST_SetSRID(ST_MakePoint(user_lng, user_lat), 4326)::geography
-    ) / 1000 as distance_km
+    ) / 1000 AS distance_km
   FROM events e
   INNER JOIN companies c ON e.company_id = c.id
   WHERE 
@@ -88,7 +90,7 @@ BEGIN
     AND ST_DWithin(
       e.location::geography,
       ST_SetSRID(ST_MakePoint(user_lng, user_lat), 4326)::geography,
-      radius_km * 1000  -- converter km para metros
+      radius_km * 1000
     )
   ORDER BY distance_km ASC;
 END;
@@ -149,3 +151,284 @@ SELECT cron.schedule(
 -- Permissões (opcional): permitir execução manual da função via RPC se necessário
 GRANT EXECUTE ON FUNCTION finalize_expired_events() TO authenticated;
 GRANT EXECUTE ON FUNCTION finalize_expired_events() TO anon;
+
+-- ============================================
+-- RPC: Eventos completos (com empresa e categorias)
+-- ============================================
+CREATE OR REPLACE FUNCTION public.get_events_complete(
+  p_limit integer DEFAULT 200,
+  p_offset integer DEFAULT 0
+)
+RETURNS TABLE (
+  id uuid,
+  company_id uuid,
+  titulo varchar(200),
+  descricao text,
+  endereco varchar(200),
+  data_inicio timestamptz,
+  data_fim timestamptz,
+  valor numeric(10,2),
+  is_gratuito boolean,
+  capacidade integer,
+  capacidade_atual integer,
+  idade_minima integer,
+  foto_principal_url text,
+  link_externo text,
+  link_streaming text,
+  status event_status,
+  is_online boolean,
+  is_presencial boolean,
+  requires_approval boolean,
+  total_views integer,
+  total_interested integer,
+  total_confirmed integer,
+  total_attended integer,
+  average_rating numeric(3,2),
+  total_reviews integer,
+  created_at timestamptz,
+  updated_at timestamptz,
+  latitude double precision,
+  longitude double precision,
+  empresa_nome text,
+  empresa_logo text,
+  empresa_rating numeric(3,2),
+  categorias text[]
+)
+LANGUAGE plpgsql SECURITY DEFINER
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    e.id,
+    e.company_id,
+    e.titulo,
+    e.descricao,
+    e.endereco,
+    e.data_inicio,
+    e.data_fim,
+    e.valor,
+    e.is_gratuito,
+    e.capacidade,
+    e.capacidade_atual,
+    e.idade_minima,
+    e.foto_principal_url,
+    e.link_externo,
+    e.link_streaming,
+    e.status,
+    e.is_online,
+    e.is_presencial,
+    e.requires_approval,
+    e.total_views,
+    e.total_interested,
+    e.total_confirmed,
+    e.total_attended,
+    e.average_rating,
+    e.total_reviews,
+    e.created_at,
+    e.updated_at,
+    ST_Y(e.location::geometry) as latitude,
+    ST_X(e.location::geometry) as longitude,
+    c.nome_fantasia::text as empresa_nome,
+    c.logo_url::text as empresa_logo,
+    c.average_rating as empresa_rating,
+    COALESCE(array_agg(cat.nome::text ORDER BY cat.nome) FILTER (WHERE cat.nome IS NOT NULL), ARRAY[]::text[]) as categorias
+  FROM events e
+  JOIN companies c ON c.id = e.company_id
+  LEFT JOIN event_categories ec ON ec.event_id = e.id
+  LEFT JOIN categories cat ON cat.id = ec.category_id
+  WHERE e.status = 'ativo' AND e.data_fim >= NOW()
+  GROUP BY e.id, c.nome_fantasia, c.logo_url, c.average_rating
+  ORDER BY e.data_inicio ASC
+  LIMIT p_limit OFFSET p_offset;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_events_complete(integer, integer) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_events_complete(integer, integer) TO anon;
+
+-- ============================================
+-- RPC: Eventos por empresa
+-- ============================================
+CREATE OR REPLACE FUNCTION public.get_company_events(
+  p_company_id uuid,
+  p_limit integer DEFAULT 200,
+  p_offset integer DEFAULT 0
+)
+RETURNS TABLE (
+  id uuid,
+  company_id uuid,
+  titulo varchar(200),
+  descricao text,
+  endereco varchar(200),
+  data_inicio timestamptz,
+  data_fim timestamptz,
+  valor numeric(10,2),
+  is_gratuito boolean,
+  capacidade integer,
+  capacidade_atual integer,
+  idade_minima integer,
+  foto_principal_url text,
+  link_externo text,
+  link_streaming text,
+  status event_status,
+  is_online boolean,
+  is_presencial boolean,
+  requires_approval boolean,
+  total_views integer,
+  total_interested integer,
+  total_confirmed integer,
+  total_attended integer,
+  average_rating numeric(3,2),
+  total_reviews integer,
+  created_at timestamptz,
+  updated_at timestamptz,
+  latitude double precision,
+  longitude double precision,
+  empresa_nome text,
+  empresa_logo text,
+  empresa_rating numeric(3,2),
+  categorias text[]
+)
+LANGUAGE plpgsql SECURITY DEFINER
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    e.id,
+    e.company_id,
+    e.titulo,
+    e.descricao,
+    e.endereco,
+    e.data_inicio,
+    e.data_fim,
+    e.valor,
+    e.is_gratuito,
+    e.capacidade,
+    e.capacidade_atual,
+    e.idade_minima,
+    e.foto_principal_url,
+    e.link_externo,
+    e.link_streaming,
+    e.status,
+    e.is_online,
+    e.is_presencial,
+    e.requires_approval,
+    e.total_views,
+    e.total_interested,
+    e.total_confirmed,
+    e.total_attended,
+    e.average_rating,
+    e.total_reviews,
+    e.created_at,
+    e.updated_at,
+    ST_Y(e.location::geometry) as latitude,
+    ST_X(e.location::geometry) as longitude,
+    c.nome_fantasia::text as empresa_nome,
+    c.logo_url::text as empresa_logo,
+    c.average_rating as empresa_rating,
+    COALESCE(array_agg(cat.nome::text ORDER BY cat.nome) FILTER (WHERE cat.nome IS NOT NULL), ARRAY[]::text[]) as categorias
+  FROM events e
+  JOIN companies c ON c.id = e.company_id
+  LEFT JOIN event_categories ec ON ec.event_id = e.id
+  LEFT JOIN categories cat ON cat.id = ec.category_id
+  WHERE e.company_id = p_company_id AND e.status = 'ativo' AND e.data_fim >= NOW()
+  GROUP BY e.id, c.nome_fantasia, c.logo_url, c.average_rating
+  ORDER BY e.data_inicio ASC
+  LIMIT p_limit OFFSET p_offset;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_company_events(uuid, integer, integer) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_company_events(uuid, integer, integer) TO anon;
+
+-- ============================================
+-- RPC: Eventos por lista de IDs
+-- ============================================
+CREATE OR REPLACE FUNCTION public.get_events_by_ids(
+  p_ids uuid[]
+)
+RETURNS TABLE (
+  id uuid,
+  company_id uuid,
+  titulo varchar(200),
+  descricao text,
+  endereco varchar(200),
+  data_inicio timestamptz,
+  data_fim timestamptz,
+  valor numeric(10,2),
+  is_gratuito boolean,
+  capacidade integer,
+  capacidade_atual integer,
+  idade_minima integer,
+  foto_principal_url text,
+  link_externo text,
+  link_streaming text,
+  status event_status,
+  is_online boolean,
+  is_presencial boolean,
+  requires_approval boolean,
+  total_views integer,
+  total_interested integer,
+  total_confirmed integer,
+  total_attended integer,
+  average_rating numeric(3,2),
+  total_reviews integer,
+  created_at timestamptz,
+  updated_at timestamptz,
+  latitude double precision,
+  longitude double precision,
+  empresa_nome text,
+  empresa_logo text,
+  empresa_rating numeric(3,2),
+  categorias text[]
+)
+LANGUAGE plpgsql SECURITY DEFINER
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    e.id,
+    e.company_id,
+    e.titulo,
+    e.descricao,
+    e.endereco,
+    e.data_inicio,
+    e.data_fim,
+    e.valor,
+    e.is_gratuito,
+    e.capacidade,
+    e.capacidade_atual,
+    e.idade_minima,
+    e.foto_principal_url,
+    e.link_externo,
+    e.link_streaming,
+    e.status,
+    e.is_online,
+    e.is_presencial,
+    e.requires_approval,
+    e.total_views,
+    e.total_interested,
+    e.total_confirmed,
+    e.total_attended,
+    e.average_rating,
+    e.total_reviews,
+    e.created_at,
+    e.updated_at,
+    ST_Y(e.location::geometry) as latitude,
+    ST_X(e.location::geometry) as longitude,
+    c.nome_fantasia::text as empresa_nome,
+    c.logo_url::text as empresa_logo,
+    c.average_rating as empresa_rating,
+    COALESCE(array_agg(cat.nome::text ORDER BY cat.nome) FILTER (WHERE cat.nome IS NOT NULL), ARRAY[]::text[]) as categorias
+  FROM events e
+  JOIN companies c ON c.id = e.company_id
+  LEFT JOIN event_categories ec ON ec.event_id = e.id
+  LEFT JOIN categories cat ON cat.id = ec.category_id
+  WHERE e.id = ANY(p_ids) AND e.status = 'ativo' AND e.data_fim >= NOW()
+  GROUP BY e.id, c.nome_fantasia, c.logo_url, c.average_rating
+  ORDER BY e.data_inicio DESC;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_events_by_ids(uuid[]) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_events_by_ids(uuid[]) TO anon;

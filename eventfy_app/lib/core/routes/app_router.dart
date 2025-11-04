@@ -12,6 +12,8 @@ import '../../screens/onboarding/preferences_onboarding_screen.dart';
 import '../../screens/profile/profile_edit_screen.dart';
 import '../../screens/map/map_screen.dart';
 import '../../screens/profile/attendance_history_screen.dart';
+import '../../screens/profile/favorites_screen.dart';
+import '../../screens/company/company_details_screen.dart';
 
 /// Classe responsável por gerenciar as rotas da aplicação usando GoRouter
 class AppRouter {
@@ -90,6 +92,24 @@ class AppRouter {
         path: '/profile/history',
         name: 'attendance_history',
         builder: (context, state) => const AttendanceHistoryScreen(),
+      ),
+      // Favoritos (eventos e empresas)
+      GoRoute(
+        path: '/favorites',
+        name: 'favorites',
+        builder: (context, state) => const FavoritesScreen(),
+      ),
+      // Detalhes de empresa (para usuários)
+      GoRoute(
+        path: '/company/details',
+        name: 'company_details',
+        builder: (context, state) {
+          final companyId = state.uri.queryParameters['id'];
+          if (companyId == null) {
+            return const Scaffold(body: Center(child: Text('Empresa não informada')));
+          }
+          return CompanyDetailsScreen(companyId: companyId);
+        },
       ),
     ],
   );

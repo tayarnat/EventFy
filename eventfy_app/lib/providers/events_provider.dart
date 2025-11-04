@@ -145,107 +145,41 @@ class EventsProvider with ChangeNotifier {
     notifyListeners();
     
     try {
-      print('DEBUG: Iniciando loadEvents...');
-      
-      // Primeiro, vamos buscar todos os eventos sem filtros para debug
-      final allEventsResponse = await _supabase
-          .from('events')
-          .select('*');
-      
-      print('DEBUG: Total de eventos na tabela (sem filtros): ${(allEventsResponse as List).length}');
-      
-      // Usando JOIN para carregar categorias dos eventos
-      final response = await supabase
-            .from('events')
-            .select('''
-              *,
-              event_categories!inner(
-                categories!inner(
-                  nome
-                )
-              )
-            ''')
-            .order('data_inicio', ascending: true);
-      
-        print('DEBUG: Aplicando filtros: status = ativo (servidor atualiza automaticamente)');
-        
-        // Aplicar filtros
-        final filteredData = (response as List).where((event) {
-          final status = event['status'] as String?;
-          final dataFim = event['data_fim'] as String?;
+      print('DEBUG: Iniciando loadEvents via RPC get_events_complete...');
 
-          if (status != 'ativo') {
-            print('DEBUG: Evento ${event['id']} filtrado - status: $status');
-            return false;
-          }
-          // Não usar horário do dispositivo para filtrar; o status é mantido pelo servidor
-          
-          return true;
-        }).toList();
-        
-        print('DEBUG: Eventos com filtros aplicados: ${filteredData.length}');
-      
-      // Verificar se a resposta é válida e não nula
+      final response = await supabase.rpc('get_events_complete', params: {
+        'p_limit': 200,
+        'p_offset': 0,
+      });
+
       if (response != null) {
-        final eventsData = response as List;
-        print('DEBUG: Processando ${filteredData.length} eventos...');
-        
-        _events = filteredData.map((eventData) {
-          print('DEBUG: Evento ID: ${eventData['id']} - Título: ${eventData['titulo']}');
-          print('DEBUG: Status: ${eventData['status']}, Data fim: ${eventData['data_fim']}');
-          print('DEBUG: data_inicio: ${eventData['data_inicio']}');
-          print('DEBUG: company_id: ${eventData['company_id']}');
-          print('DEBUG: location type: ${eventData['location'].runtimeType}');
-          print('DEBUG: location: ${eventData['location']}');
-          
-          // Processar WKB (Well-Known Binary) para extrair coordenadas
-          if (eventData['location'] != null) {
-            final locationWkb = eventData['location'] as String;
-            try {
-              final coords = _parseWkbPoint(locationWkb);
-              if (coords != null) {
-                eventData['longitude'] = coords['lng'];
-                eventData['latitude'] = coords['lat'];
-                print('DEBUG: Coordenadas extraídas do WKB - lat: ${coords['lat']}, lng: ${coords['lng']}');
-              }
-            } catch (e) {
-              print('DEBUG: Erro ao processar WKB: $e');
-            }
-          }
-          
-          // Não processar dados da empresa por enquanto (sem join)
-          // final companyData = eventData['companies'];
-          // eventData['empresa_nome'] = companyData?['nome_fantasia'];
-          // eventData['empresa_logo'] = companyData?['logo_url'];
-          // eventData['empresa_rating'] = companyData?['average_rating'];
-          
+        final List data = response as List;
+        print('DEBUG: Recebidos ${data.length} eventos do RPC');
+
+        _events = data.map((row) {
+          final eventData = Map<String, dynamic>.from(row as Map);
+          // Os campos empresa_* já vêm no topo e latitude/longitude já vêm calculados no RPC
           final event = EventModel.fromJson(eventData);
-          print('DEBUG: Coordenadas extraídas - Lat: ${event.latitude}, Lng: ${event.longitude}');
-          
           return event;
         }).toList();
       } else {
         _events = [];
       }
-      
+
       if (kDebugMode) {
-        print('Carregados ${_events.length} eventos');
+        print('Carregados ${_events.length} eventos (RPC)');
         if (_events.isEmpty) {
           print('Nenhum evento encontrado. O mapa permanecerá navegável.');
         }
       }
-      
-      // Limpar erro anterior se o carregamento foi bem-sucedido
+
       _errorMessage = null;
-      
     } catch (e) {
-      // Manter lista vazia em caso de erro para que o mapa continue navegável
       _events = [];
-      _errorMessage = 'Erro ao carregar eventos: $e';
-      NotificationService.instance.showError('Erro ao carregar eventos: $e');
+      _errorMessage = 'Erro ao carregar eventos (RPC): $e';
+      NotificationService.instance.showError('Erro ao carregar eventos (RPC): $e');
       if (kDebugMode) {
-        print('Erro ao carregar eventos: $e');
-        print('Mantendo mapa navegável mesmo com erro no carregamento de eventos.');
+        print('Erro ao carregar eventos (RPC): $e');
       }
     } finally {
       _isLoadingEvents = false;
@@ -259,115 +193,49 @@ class EventsProvider with ChangeNotifier {
     notifyListeners();
     
     try {
-      print('DEBUG: Iniciando busca de eventos por localização...');
+      print('DEBUG: Iniciando busca de eventos por localização via RPC get_nearby_events...');
       print('DEBUG: Centro: $latitude, $longitude - Raio: ${radiusKm}km');
-      
-      // Buscar eventos com filtros aplicados
-      final response = await _supabase
-          .from('events')
-          .select('''
-            *,
-            companies!inner(
-              nome_fantasia,
-              logo_url,
-              average_rating
-            )
-          ''')
-          .eq('status', 'ativo')
-          .order('data_inicio', ascending: true);
-      
-      print('DEBUG: Aplicando filtros: status = ativo (servidor atualiza automaticamente)');
-      
-      // Aplicar filtros
-      final filteredData = (response as List).where((event) {
-        final status = event['status'] as String?;
-        final dataFim = event['data_fim'] as String?;
-        
-        if (status != 'ativo') {
-          print('DEBUG: Evento ${event['id']} filtrado - status: $status');
-          return false;
-        }
-        // Não usar horário do dispositivo para filtrar; o status é mantido pelo servidor
-        
-        return true;
-      }).toList();
-      
-      print('DEBUG: Eventos com filtros aplicados: ${filteredData.length}');
-      
-      if (filteredData.isEmpty) {
-        print('DEBUG: Nenhum evento encontrado após aplicar filtros');
+
+      final response = await supabase.rpc('get_nearby_events', params: {
+        'user_lat': latitude,
+        'user_lng': longitude,
+        'radius_km': radiusKm,
+      });
+
+      if (response == null) {
+        print('DEBUG: RPC retornou nulo');
         _events = [];
         _isLoadingEvents = false;
         notifyListeners();
         return;
       }
-      
-      print('DEBUG: Processando ${filteredData.length} eventos...');
-      
-      final List<EventModel> eventsInRadius = [];
-      
-      for (final eventData in filteredData) {
-        print('DEBUG: Evento ID: ${eventData['id']} - Título: ${eventData['titulo']}');
-        print('DEBUG: Status: ${eventData['status']}, Data fim: ${eventData['data_fim']}');
-        
-        // Processar dados da empresa
-        final companyData = eventData['companies'];
-        eventData['empresa_nome'] = companyData?['nome_fantasia'];
-        eventData['empresa_logo'] = companyData?['logo_url'];
-        eventData['empresa_rating'] = companyData?['average_rating'];
-        
-        // Processar localização WKB
-        final locationData = eventData['location'];
-        print('DEBUG: location type: ${locationData.runtimeType}');
-        print('DEBUG: location: $locationData');
-        
-        if (locationData is String && locationData.isNotEmpty) {
-          try {
-            final coordinates = _parseWkbPoint(locationData);
-            if (coordinates != null) {
-              print('DEBUG: Coordenadas extraídas do WKB - lat: ${coordinates['lat']}, lng: ${coordinates['lng']}');
-              eventData['latitude'] = coordinates['lat'];
-              eventData['longitude'] = coordinates['lng'];
-              
-              // Calcular distância
-              final distance = _calculateDistance(
-                latitude, longitude, 
-                coordinates['lat']!, coordinates['lng']!
-              );
-              
-              print('DEBUG: Distância calculada: ${distance}km (limite: ${radiusKm}km)');
-              
-              // Verificar se está dentro do raio
-              if (distance <= radiusKm) {
-                final event = EventModel.fromJson(eventData);
-                event.distanceFromUser = distance;
-                eventsInRadius.add(event);
-                print('DEBUG: Evento adicionado - dentro do raio');
-              } else {
-                print('DEBUG: Evento fora do raio - distância: ${distance}km');
-              }
-            } else {
-              print('DEBUG: Falha ao extrair coordenadas do WKB');
-            }
-          } catch (e) {
-            print('DEBUG: Erro ao processar WKB: $e');
-          }
-        } else {
-          print('DEBUG: Location inválido ou vazio');
-        }
+
+      final List data = response as List;
+      print('DEBUG: Recebidos ${data.length} eventos próximos do RPC');
+
+      final eventsInRadius = <EventModel>[];
+
+      for (final row in data) {
+        final eventData = Map<String, dynamic>.from(row as Map);
+        // Campos empresa_* e latitude/longitude já vêm no retorno
+        final event = EventModel.fromJson(eventData);
+        // Distância calculada no servidor
+        final distanceKm = (eventData['distance_km'] as num?)?.toDouble();
+        event.distanceFromUser = distanceKm;
+        eventsInRadius.add(event);
       }
-      
+
       // Ordenar por distância
-      eventsInRadius.sort((a, b) => a.distanceFromUser!.compareTo(b.distanceFromUser!));
-      
+      eventsInRadius.sort((a, b) => (a.distanceFromUser ?? 0).compareTo(b.distanceFromUser ?? 0));
+
       print('DEBUG: Total de eventos na região: ${eventsInRadius.length}');
       _events = eventsInRadius;
       
     } catch (e) {
-      _errorMessage = 'Erro ao buscar eventos próximos: $e';
-      NotificationService.instance.showError('Erro ao buscar eventos próximos: $e');
+      _errorMessage = 'Erro ao buscar eventos próximos (RPC): $e';
+      NotificationService.instance.showError('Erro ao buscar eventos próximos (RPC): $e');
       if (kDebugMode) {
-        print('Erro ao buscar eventos próximos: $e');
+        print('Erro ao buscar eventos próximos (RPC): $e');
       }
     } finally {
       _isLoadingEvents = false;
@@ -567,30 +435,17 @@ class EventsProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      final response = await _supabase
-          .from('events')
-          .select('''
-            *,
-            companies!inner(
-              nome_fantasia,
-              logo_url,
-              average_rating
-            )
-          ''')
-          .eq('company_id', companyId)
-          .eq('status', 'ativo')
-          .gte('data_fim', DateTime.now().toIso8601String())
-          .order('data_inicio', ascending: true);
+      print('DEBUG: Iniciando loadCompanyEvents via RPC get_company_events...');
+      final response = await supabase.rpc('get_company_events', params: {
+        'p_company_id': companyId,
+        'p_limit': 200,
+        'p_offset': 0,
+      });
 
-      // Verificar se a resposta é válida e não nula
       if (response != null) {
-        _events = (response as List).map((eventData) {
-          // Processar dados da empresa
-          final companyData = eventData['companies'];
-          eventData['empresa_nome'] = companyData?['nome_fantasia'];
-          eventData['empresa_logo'] = companyData?['logo_url'];
-          eventData['empresa_rating'] = companyData?['average_rating'];
-          
+        final List data = response as List;
+        _events = data.map((row) {
+          final eventData = Map<String, dynamic>.from(row as Map);
           return EventModel.fromJson(eventData);
         }).toList();
       } else {
@@ -598,17 +453,16 @@ class EventsProvider with ChangeNotifier {
       }
 
       if (kDebugMode) {
-        print('Carregados ${_events.length} eventos da empresa $companyId');
+        print('Carregados ${_events.length} eventos da empresa $companyId (RPC)');
       }
 
-      // Limpar erro anterior se o carregamento foi bem-sucedido
       _errorMessage = null;
       
     } catch (e) {
-      _errorMessage = 'Erro ao carregar eventos da empresa: $e';
-      NotificationService.instance.showError('Erro ao carregar eventos da empresa: $e');
+      _errorMessage = 'Erro ao carregar eventos da empresa (RPC): $e';
+      NotificationService.instance.showError('Erro ao carregar eventos da empresa (RPC): $e');
       if (kDebugMode) {
-        print('Erro ao carregar eventos da empresa: $e');
+        print('Erro ao carregar eventos da empresa (RPC): $e');
       }
     } finally {
       _isLoadingEvents = false;
