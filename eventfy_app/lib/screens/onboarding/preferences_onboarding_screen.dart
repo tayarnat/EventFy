@@ -180,6 +180,10 @@ class _PreferencesOnboardingScreenState extends State<PreferencesOnboardingScree
                   const SizedBox(height: 16),
                   ElevatedButton(
                     onPressed: _loadCategories,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.deepPurple.shade700,
+                      foregroundColor: Colors.white,
+                    ),
                     child: const Text('Tentar Novamente'),
                   ),
                 ],

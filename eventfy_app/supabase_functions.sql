@@ -432,3 +432,273 @@ $$;
 
 GRANT EXECUTE ON FUNCTION public.get_events_by_ids(uuid[]) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_events_by_ids(uuid[]) TO anon;
+
+-- ============================================
+-- RPC: Relatório por período para empresa
+-- ============================================
+CREATE OR REPLACE FUNCTION public.get_company_period_report(
+  p_company_id uuid,
+  p_start timestamptz,
+  p_end timestamptz
+)
+RETURNS TABLE (
+  total_events integer,
+  events_active integer,
+  events_finalized integer,
+  events_cancelled integer,
+  total_confirmed integer,
+  total_attended integer,
+  average_rating numeric(3,2),
+  total_reviews integer
+)
+LANGUAGE plpgsql SECURITY DEFINER
+AS $$
+BEGIN
+  -- Restrição: só a própria empresa (usuário autenticado) pode consultar
+  IF p_company_id <> auth.uid() THEN
+    RAISE EXCEPTION 'permission denied' USING ERRCODE = '28000';
+  END IF;
+  RETURN QUERY
+  WITH events_in_period AS (
+    SELECT e.*
+    FROM events e
+    WHERE e.company_id = p_company_id
+      AND e.data_inicio >= p_start
+      AND e.data_inicio <= p_end
+  )
+  SELECT
+    -- Total de eventos no período
+    (SELECT COUNT(*) FROM events_in_period)::integer AS total_events,
+    -- Contagem por status
+    (SELECT COUNT(*) FROM events_in_period WHERE status = 'ativo')::integer AS events_active,
+    (SELECT COUNT(*) FROM events_in_period WHERE status = 'finalizado')::integer AS events_finalized,
+    (SELECT COUNT(*) FROM events_in_period WHERE status = 'cancelado')::integer AS events_cancelled,
+    -- Confirmados e compareceram no período (considerando data do evento)
+    COALESCE((
+      SELECT COUNT(*)
+      FROM event_attendances ea
+      JOIN events_in_period e ON e.id = ea.event_id
+      WHERE ea.status = 'confirmado'
+    ), 0)::integer AS total_confirmed,
+    COALESCE((
+      SELECT COUNT(*)
+      FROM event_attendances ea
+      JOIN events_in_period e ON e.id = ea.event_id
+      WHERE ea.status = 'compareceu'
+    ), 0)::integer AS total_attended,
+    -- Média e total de avaliações no período (considerando data de criação da avaliação)
+    COALESCE((
+      SELECT AVG(er.rating)
+      FROM event_reviews er
+      JOIN events e ON e.id = er.event_id
+      WHERE e.company_id = p_company_id
+        AND er.created_at >= p_start AND er.created_at <= p_end
+    ), 0)::numeric(3,2) AS average_rating,
+    COALESCE((
+      SELECT COUNT(*)
+      FROM event_reviews er
+      JOIN events e ON e.id = er.event_id
+      WHERE e.company_id = p_company_id
+        AND er.created_at >= p_start AND er.created_at <= p_end
+    ), 0)::integer AS total_reviews;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_company_period_report(uuid, timestamptz, timestamptz) TO authenticated;
+
+-- ============================================
+-- RPC: Estatísticas mensais (últimos N meses) para empresa
+-- ============================================
+CREATE OR REPLACE FUNCTION public.get_company_monthly_stats(
+  p_company_id uuid,
+  p_months integer DEFAULT 6
+)
+RETURNS TABLE (
+  month_start timestamptz,
+  month_label text,
+  events_count integer,
+  confirmed_count integer,
+  attended_count integer,
+  reviews_count integer,
+  average_rating numeric(3,2)
+)
+LANGUAGE plpgsql SECURITY DEFINER
+AS $$
+BEGIN
+  -- Restrição: só a própria empresa (usuário autenticado) pode consultar
+  IF p_company_id <> auth.uid() THEN
+    RAISE EXCEPTION 'permission denied' USING ERRCODE = '28000';
+  END IF;
+  RETURN QUERY
+  WITH months AS (
+    SELECT date_trunc('month', NOW()) - (make_interval(months => s)) AS month_start
+    FROM generate_series(0, GREATEST(p_months, 1) - 1) AS s
+  ),
+  events_in_month AS (
+    SELECT m.month_start,
+           COUNT(*) AS events_count
+    FROM months m
+    LEFT JOIN events e
+      ON e.company_id = p_company_id
+     AND e.data_inicio >= m.month_start
+     AND e.data_inicio < (m.month_start + INTERVAL '1 month')
+    GROUP BY m.month_start
+  ),
+  confirmed_in_month AS (
+    SELECT m.month_start,
+           COUNT(ea.*) AS confirmed_count
+    FROM months m
+    LEFT JOIN events e
+      ON e.company_id = p_company_id
+     AND e.data_inicio >= m.month_start
+     AND e.data_inicio < (m.month_start + INTERVAL '1 month')
+    LEFT JOIN event_attendances ea ON ea.event_id = e.id AND ea.status = 'confirmado'
+    GROUP BY m.month_start
+  ),
+  attended_in_month AS (
+    SELECT m.month_start,
+           COUNT(ea.*) AS attended_count
+    FROM months m
+    LEFT JOIN events e
+      ON e.company_id = p_company_id
+     AND e.data_inicio >= m.month_start
+     AND e.data_inicio < (m.month_start + INTERVAL '1 month')
+    LEFT JOIN event_attendances ea ON ea.event_id = e.id AND ea.status = 'compareceu'
+    GROUP BY m.month_start
+  ),
+  reviews_in_month AS (
+    SELECT m.month_start,
+           COUNT(er.*) FILTER (WHERE e.id IS NOT NULL) AS reviews_count,
+           COALESCE(AVG(er.rating) FILTER (WHERE e.id IS NOT NULL), 0) AS average_rating
+    FROM months m
+    LEFT JOIN event_reviews er
+      ON er.created_at >= m.month_start
+     AND er.created_at < (m.month_start + INTERVAL '1 month')
+    LEFT JOIN events e ON e.id = er.event_id AND e.company_id = p_company_id
+    GROUP BY m.month_start
+  )
+  SELECT 
+    m.month_start,
+    to_char(m.month_start, 'YYYY-MM') AS month_label,
+    COALESCE(eim.events_count, 0)::integer AS events_count,
+    COALESCE(cm.confirmed_count, 0)::integer AS confirmed_count,
+    COALESCE(am.attended_count, 0)::integer AS attended_count,
+    COALESCE(rm.reviews_count, 0)::integer AS reviews_count,
+    COALESCE(rm.average_rating, 0)::numeric(3,2) AS average_rating
+  FROM months m
+  LEFT JOIN events_in_month eim ON eim.month_start = m.month_start
+  LEFT JOIN confirmed_in_month cm ON cm.month_start = m.month_start
+  LEFT JOIN attended_in_month am ON am.month_start = m.month_start
+  LEFT JOIN reviews_in_month rm ON rm.month_start = m.month_start
+  ORDER BY m.month_start ASC;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_company_monthly_stats(uuid, integer) TO authenticated;
+
+-- Monthly progress (cumulative) for a company
+CREATE OR REPLACE FUNCTION public.get_company_monthly_progress(
+  p_company_id uuid,
+  p_months integer DEFAULT 6
+)
+RETURNS TABLE (
+  month_start timestamptz,
+  month_label text,
+  events_month integer,
+  events_cumulative integer,
+  confirmed_month integer,
+  confirmed_cumulative integer,
+  attended_month integer,
+  attended_cumulative integer,
+  reviews_month integer,
+  reviews_cumulative integer,
+  average_rating_month numeric(3,2),
+  average_rating_prev numeric(3,2)
+)
+LANGUAGE plpgsql SECURITY DEFINER
+AS $$
+BEGIN
+  -- Restrição: só a própria empresa (usuário autenticado) pode consultar
+  IF p_company_id <> auth.uid() THEN
+    RAISE EXCEPTION 'permission denied' USING ERRCODE = '28000';
+  END IF;
+  RETURN QUERY
+  WITH months AS (
+    SELECT date_trunc('month', NOW()) - (make_interval(months => s)) AS month_start
+    FROM generate_series(0, GREATEST(p_months, 1) - 1) AS s
+  ),
+  events_in_month AS (
+    SELECT m.month_start,
+           COUNT(*) AS events_count
+    FROM months m
+    LEFT JOIN events e
+      ON e.company_id = p_company_id
+     AND e.data_inicio >= m.month_start
+     AND e.data_inicio < (m.month_start + INTERVAL '1 month')
+    GROUP BY m.month_start
+  ),
+  confirmed_in_month AS (
+    SELECT m.month_start,
+           COUNT(ea.*) AS confirmed_count
+    FROM months m
+    LEFT JOIN events e
+      ON e.company_id = p_company_id
+     AND e.data_inicio >= m.month_start
+     AND e.data_inicio < (m.month_start + INTERVAL '1 month')
+    LEFT JOIN event_attendances ea ON ea.event_id = e.id AND ea.status = 'confirmado'
+    GROUP BY m.month_start
+  ),
+  attended_in_month AS (
+    SELECT m.month_start,
+           COUNT(ea.*) AS attended_count
+    FROM months m
+    LEFT JOIN events e
+      ON e.company_id = p_company_id
+     AND e.data_inicio >= m.month_start
+     AND e.data_inicio < (m.month_start + INTERVAL '1 month')
+    LEFT JOIN event_attendances ea ON ea.event_id = e.id AND ea.status = 'compareceu'
+    GROUP BY m.month_start
+  ),
+  reviews_in_month AS (
+    SELECT m.month_start,
+           COUNT(er.*) FILTER (WHERE e.id IS NOT NULL) AS reviews_count,
+           COALESCE(AVG(er.rating) FILTER (WHERE e.id IS NOT NULL), 0) AS average_rating
+    FROM months m
+    LEFT JOIN event_reviews er
+      ON er.created_at >= m.month_start
+     AND er.created_at < (m.month_start + INTERVAL '1 month')
+    LEFT JOIN events e ON e.id = er.event_id AND e.company_id = p_company_id
+    GROUP BY m.month_start
+  ),
+  aggregated AS (
+    SELECT m.month_start,
+           COALESCE(eim.events_count, 0)::integer AS events_month,
+           COALESCE(cm.confirmed_count, 0)::integer AS confirmed_month,
+           COALESCE(am.attended_count, 0)::integer AS attended_month,
+           COALESCE(rm.reviews_count, 0)::integer AS reviews_month,
+           COALESCE(rm.average_rating, 0)::numeric(3,2) AS average_rating_month
+    FROM months m
+    LEFT JOIN events_in_month eim ON eim.month_start = m.month_start
+    LEFT JOIN confirmed_in_month cm ON cm.month_start = m.month_start
+    LEFT JOIN attended_in_month am ON am.month_start = m.month_start
+    LEFT JOIN reviews_in_month rm ON rm.month_start = m.month_start
+  )
+  SELECT 
+    a.month_start,
+    to_char(a.month_start, 'YYYY-MM') AS month_label,
+    a.events_month,
+    (SUM(a.events_month) OVER (ORDER BY a.month_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW))::integer AS events_cumulative,
+    a.confirmed_month,
+    (SUM(a.confirmed_month) OVER (ORDER BY a.month_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW))::integer AS confirmed_cumulative,
+    a.attended_month,
+    (SUM(a.attended_month) OVER (ORDER BY a.month_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW))::integer AS attended_cumulative,
+    a.reviews_month,
+    (SUM(a.reviews_month) OVER (ORDER BY a.month_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW))::integer AS reviews_cumulative,
+    a.average_rating_month,
+    LAG(a.average_rating_month) OVER (ORDER BY a.month_start ASC) AS average_rating_prev
+  FROM aggregated a
+  ORDER BY a.month_start ASC;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_company_monthly_progress(uuid, integer) TO authenticated;

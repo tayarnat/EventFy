@@ -165,7 +165,7 @@ class _CompanyEventsTabState extends State<CompanyEventsTab> {
                     icon: const Icon(Icons.add),
                     label: const Text('Criar Novo Evento'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Theme.of(context).primaryColor,
+                      backgroundColor: Colors.deepPurple.shade700,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 16),
                     ),
@@ -365,6 +365,10 @@ class _CompanyPastEventsTabState extends State<CompanyPastEventsTab> {
                       const SizedBox(height: 16),
                       ElevatedButton(
                         onPressed: _loadPastEvents,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.deepPurple.shade700,
+                          foregroundColor: Colors.white,
+                        ),
                         child: const Text('Tentar Novamente'),
                       ),
                     ],

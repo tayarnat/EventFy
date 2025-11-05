@@ -127,7 +127,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         onPressed: () => setState(() => _isUserType = true),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: _isUserType 
-                              ? Theme.of(context).primaryColor 
+                              ? Colors.deepPurple.shade700
                               : Colors.grey[300],
                           foregroundColor: _isUserType 
                               ? Colors.white 
@@ -142,7 +142,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         onPressed: () => setState(() => _isUserType = false),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: !_isUserType 
-                              ? Theme.of(context).primaryColor 
+                              ? Colors.deepPurple.shade700
                               : Colors.grey[300],
                           foregroundColor: !_isUserType 
                               ? Colors.white 

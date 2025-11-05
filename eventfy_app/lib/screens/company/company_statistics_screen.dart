@@ -1,12 +1,22 @@
 import 'dart:developer';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+import 'dart:io' as io;
 
 import '../../core/config/supabase_config.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/notification_service.dart';
 import '../../models/event_review_model.dart';
 import 'company_reviews_screen.dart';
+import 'company_period_report_screen.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:printing/printing.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:pdf/pdf.dart' as pdf;
 
 class CompanyStatisticsScreen extends StatefulWidget {
   @override
@@ -18,6 +28,12 @@ class _CompanyStatisticsScreenState extends State<CompanyStatisticsScreen> {
   Map<String, dynamic> _statistics = {};
   String? _errorMessage;
   List<EventReviewModel> _companyReviews = [];
+  // Relatório por período
+  DateTimeRange? _selectedRange;
+  bool _reportLoading = false;
+  Map<String, dynamic>? _periodReport; // resultado do RPC get_company_period_report
+  List<Map<String, dynamic>> _monthlyStats = []; // resultado do RPC get_company_monthly_stats
+  final GlobalKey _reportKey = GlobalKey();
   
   @override
   void initState() {
@@ -169,6 +185,182 @@ class _CompanyStatisticsScreenState extends State<CompanyStatisticsScreen> {
       );
     }
   }
+
+  // Seletor de faixa de datas
+  Future<void> _pickDateRange() async {
+    final initialDateRange = _selectedRange ?? DateTimeRange(
+      start: DateTime.now().subtract(const Duration(days: 30)),
+      end: DateTime.now(),
+    );
+
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020, 1, 1),
+      lastDate: DateTime.now().add(const Duration(days: 1)),
+      initialDateRange: initialDateRange,
+      saveText: 'Aplicar',
+      helpText: 'Selecione o período do relatório',
+    );
+    if (picked != null) {
+      setState(() {
+        _selectedRange = picked;
+      });
+    }
+  }
+
+  void _setQuickRange(Duration duration, {bool alignToMonth = false}) {
+    final now = DateTime.now();
+    DateTime start = now.subtract(duration);
+    DateTime end = now;
+    if (alignToMonth) {
+      start = DateTime(now.year, now.month, 1);
+      // fim do mês inclusive (23:59:59.999999 do último dia)
+      end = DateTime(now.year, now.month + 1, 1).subtract(const Duration(microseconds: 1));
+    }
+    setState(() {
+      _selectedRange = DateTimeRange(start: start, end: end);
+    });
+  }
+
+  Future<void> _generatePeriodReport() async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final company = authProvider.currentCompany;
+    if (company == null) {
+      NotificationService.instance.showError('Empresa não encontrada');
+      return;
+    }
+    final range = _selectedRange ?? DateTimeRange(
+      start: DateTime.now().subtract(const Duration(days: 30)),
+      end: DateTime.now(),
+    );
+
+    setState(() {
+      _reportLoading = true;
+    });
+    try {
+      final startIso = range.start.toUtc().toIso8601String();
+      final endIso = range.end.toUtc().toIso8601String();
+
+      // RPC: relatório por período
+      final reportRes = await supabase.rpc('get_company_period_report', params: {
+        'p_company_id': company.id,
+        'p_start': startIso,
+        'p_end': endIso,
+      });
+
+      Map<String, dynamic> periodData;
+      if (reportRes is List && reportRes.isNotEmpty) {
+        periodData = reportRes.first as Map<String, dynamic>;
+      } else if (reportRes is Map<String, dynamic>) {
+        periodData = reportRes;
+      } else {
+        periodData = {};
+      }
+
+      // RPC: estatísticas mensais (últimos 6 meses)
+      final monthlyRes = await supabase.rpc('get_company_monthly_stats', params: {
+        'p_company_id': company.id,
+        'p_months': 6,
+      });
+      final monthlyList = (monthlyRes as List?)?.map((e) => Map<String, dynamic>.from(e as Map)).toList() ?? [];
+
+      setState(() {
+        _periodReport = periodData;
+        _monthlyStats = monthlyList;
+      });
+    } catch (e) {
+      NotificationService.instance.showError('Erro ao gerar relatório: $e');
+    } finally {
+      setState(() {
+        _reportLoading = false;
+      });
+    }
+  }
+
+  Future<Uint8List?> _captureReportImageBytes() async {
+    try {
+      final boundary = _reportKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+      if (boundary == null) return null;
+      final ui.Image image = await boundary.toImage(pixelRatio: 3.0);
+      final ByteData? byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      return byteData?.buffer.asUint8List();
+    } catch (e) {
+      NotificationService.instance.showError('Falha ao capturar imagem do relatório: $e');
+      return null;
+    }
+  }
+
+  Future<void> _downloadReportAsImage() async {
+    final pngBytes = await _captureReportImageBytes();
+    if (pngBytes == null) return;
+    if (kIsWeb) {
+      // No web, usar Printing.sharePdf para PDF; imagem download direto requer lógica web específica
+      NotificationService.instance.showWarning('Download de imagem não é suportado no Web por enquanto. Use PDF.');
+      return;
+    }
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final filePath = '${dir.path}/relatorio_eventfy_${DateTime.now().millisecondsSinceEpoch}.png';
+      final file = io.File(filePath);
+      await file.writeAsBytes(pngBytes);
+      NotificationService.instance.showSuccess('Imagem salva em: $filePath');
+    } catch (e) {
+      NotificationService.instance.showError('Erro ao salvar imagem: $e');
+    }
+  }
+
+  Future<void> _downloadReportAsPdf() async {
+    try {
+      // Gera imagem do bloco e embute em PDF
+      final pngBytes = await _captureReportImageBytes();
+      if (pngBytes == null) return;
+      final doc = pw.Document();
+      final image = pw.MemoryImage(pngBytes);
+      doc.addPage(
+        pw.Page(
+          build: (pw.Context context) {
+            return pw.Column(children: [
+              pw.Text('Relatório de Estatísticas da Empresa', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+              pw.SizedBox(height: 8),
+              pw.Image(image, fit: pw.BoxFit.contain),
+            ]);
+          },
+        ),
+      );
+
+      if (kIsWeb) {
+        await Printing.sharePdf(bytes: await doc.save(), filename: 'relatorio_eventfy.pdf');
+        return;
+      }
+
+      final dir = await getApplicationDocumentsDirectory();
+      final filePath = '${dir.path}/relatorio_eventfy_${DateTime.now().millisecondsSinceEpoch}.pdf';
+      final file = io.File(filePath);
+      await file.writeAsBytes(await doc.save());
+      NotificationService.instance.showSuccess('PDF salvo em: $filePath');
+    } catch (e) {
+      NotificationService.instance.showError('Erro ao gerar/salvar PDF: $e');
+    }
+  }
+
+  Future<void> _printReport() async {
+    try {
+      final pngBytes = await _captureReportImageBytes();
+      if (pngBytes == null) return;
+      await Printing.layoutPdf(onLayout: (pdf.PdfPageFormat format) async {
+        final doc = pw.Document();
+        final image = pw.MemoryImage(pngBytes);
+        doc.addPage(
+          pw.Page(pageFormat: format, build: (pw.Context context) {
+            return pw.Image(image, fit: pw.BoxFit.contain);
+          }),
+        );
+        return await doc.save();
+      });
+    } catch (e) {
+      NotificationService.instance.showError('Erro ao imprimir: $e');
+    }
+  }
   
   @override
   Widget build(BuildContext context) {
@@ -205,6 +397,10 @@ class _CompanyStatisticsScreenState extends State<CompanyStatisticsScreen> {
                       const SizedBox(height: 16),
                       ElevatedButton(
                         onPressed: _loadStatistics,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.deepPurple.shade700,
+                          foregroundColor: Colors.white,
+                        ),
                         child: const Text('Tentar Novamente'),
                       ),
                     ],
@@ -215,13 +411,31 @@ class _CompanyStatisticsScreenState extends State<CompanyStatisticsScreen> {
                   child: ListView(
                     padding: const EdgeInsets.all(16),
                     children: [
-                      // Resumo geral
-                      const Text(
-                        'Resumo Geral',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      // Resumo geral com botão de acesso ao relatório por período
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Resumo Geral',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          TextButton.icon(
+                            icon: const Icon(Icons.chevron_right),
+                            label: const Text('Relatório por período'),
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => const CompanyPeriodReportScreen(),
+                                ),
+                              );
+                            },
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 16),
                       
@@ -585,6 +799,54 @@ class _ReviewRow extends StatelessWidget {
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+// Chip que mostra valor e delta (aumento/diminuição)
+class _DeltaChip extends StatelessWidget {
+  final String label;
+  final dynamic value; // pode ser int ou String (double formatado)
+  final dynamic delta; // int ou double
+  final bool isDouble;
+
+  const _DeltaChip({
+    required this.label,
+    required this.value,
+    required this.delta,
+    this.isDouble = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final double deltaVal = (delta is num) ? (delta as num).toDouble() : double.tryParse('$delta') ?? 0.0;
+    final bool up = deltaVal > 0.0001;
+    final bool down = deltaVal < -0.0001;
+    final Color color = up
+        ? Colors.green
+        : (down ? Colors.red : Colors.grey);
+    final IconData icon = up
+        ? Icons.trending_up
+        : (down ? Icons.trending_down : Icons.horizontal_rule);
+    final String deltaStr = isDouble ? deltaVal.toStringAsFixed(2) : deltaVal.toStringAsFixed(0);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.4)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('$label: $value', style: const TextStyle(fontSize: 13)),
+          const SizedBox(width: 6),
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 2),
+          Text(deltaStr, style: TextStyle(fontSize: 13, color: color, fontWeight: FontWeight.w600)),
         ],
       ),
     );

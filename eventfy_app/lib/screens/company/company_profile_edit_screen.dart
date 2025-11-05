@@ -286,6 +286,10 @@ class _CompanyProfileEditScreenState extends State<CompanyProfileEditScreen> {
               height: 50,
               child: ElevatedButton(
                 onPressed: _isLoading ? null : _saveProfile,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.deepPurple.shade700,
+                  foregroundColor: Colors.white,
+                ),
                 child: _isLoading
                     ? const CircularProgressIndicator(color: Colors.white)
                     : const Text(

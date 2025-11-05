@@ -303,6 +303,10 @@ CREATE INDEX idx_companies_location ON companies USING GIST (location);
 CREATE INDEX idx_events_data_inicio ON events (data_inicio);
 CREATE INDEX idx_events_data_fim ON events (data_fim);
 CREATE INDEX idx_events_status ON events (status);
+-- Índices para tabelas de presença e avaliações (suporte a relatórios)
+CREATE INDEX IF NOT EXISTS idx_event_attendances_status ON event_attendances (status);
+CREATE INDEX IF NOT EXISTS idx_event_attendances_created_at ON event_attendances (created_at);
+CREATE INDEX IF NOT EXISTS idx_event_reviews_created_at ON event_reviews (created_at);
 
 -- Índices para relacionamentos
 CREATE INDEX idx_events_company ON events (company_id);

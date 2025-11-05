@@ -684,6 +684,10 @@ class _MapScreenState extends State<MapScreen> {
                     ),
                     ElevatedButton(
                       onPressed: () => Navigator.pop(context),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.deepPurple.shade700,
+                        foregroundColor: Colors.white,
+                      ),
                       child: const Text('Aplicar'),
                     ),
                   ],
@@ -985,6 +989,10 @@ class _MapScreenState extends State<MapScreen> {
                                   ),
                                 );
                               },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.deepPurple.shade700,
+                                foregroundColor: Colors.white,
+                              ),
                               child: const Text('Ver Detalhes'),
                             ),
                           ),

@@ -72,6 +72,10 @@ class EventDetailsScreen extends StatelessWidget {
               ),
               ElevatedButton(
                 onPressed: () => Navigator.of(ctx).pop(true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.deepPurple.shade700,
+                  foregroundColor: Colors.white,
+                ),
                 child: const Text('Sim, participei'),
               ),
             ],

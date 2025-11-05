@@ -322,6 +322,10 @@ class NearbyEventsTab extends StatelessWidget {
                 const SizedBox(height: 16),
                 ElevatedButton(
                   onPressed: () => eventsProvider.initialize(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.deepPurple.shade700,
+                    foregroundColor: Colors.white,
+                  ),
                   child: const Text('Tentar Novamente'),
                 ),
               ],
@@ -436,6 +440,10 @@ class RecommendedEventsTab extends StatelessWidget {
                 const SizedBox(height: 16),
                 ElevatedButton(
                   onPressed: () => eventsProvider.initialize(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.deepPurple.shade700,
+                    foregroundColor: Colors.white,
+                  ),
                   child: const Text('Tentar Novamente'),
                 ),
               ],

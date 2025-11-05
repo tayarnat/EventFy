@@ -95,6 +95,10 @@ class _CompanyDetailsScreenState extends State<CompanyDetailsScreen> {
               const SizedBox(height: 12),
               ElevatedButton(
                 onPressed: _load,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.deepPurple.shade700,
+                  foregroundColor: Colors.white,
+                ),
                 child: const Text('Tentar novamente'),
               ),
             ],

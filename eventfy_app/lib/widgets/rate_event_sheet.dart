@@ -164,6 +164,10 @@ class _RateEventSheetState extends State<RateEventSheet> {
               width: double.infinity,
               child: ElevatedButton.icon(
                 onPressed: _submitting ? null : _submit,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.deepPurple.shade700,
+                  foregroundColor: Colors.white,
+                ),
                 icon: const Icon(Icons.send),
                 label: _submitting
                     ? const Text('Enviando...')
