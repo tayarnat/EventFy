@@ -220,28 +220,39 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
                     bottomRight: Radius.circular(8),
                   ),
                 ),
-                child: Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(
-                      status == 'compareceu' ? Icons.check_circle : Icons.schedule,
-                      size: 16,
-                      color: status == 'compareceu' ? Colors.green : Colors.orange,
+                    Row(
+                      children: [
+                        Icon(
+                          status == 'compareceu' ? Icons.check_circle : Icons.schedule,
+                          size: 16,
+                          color: status == 'compareceu' ? Colors.green : Colors.orange,
+                        ),                        Flexible(
+                          child: Text(
+                            status == 'compareceu' ? 'Presença confirmada' : 'Vai participar',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: status == 'compareceu' ? Colors.green.shade700 : Colors.orange.shade700,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 8),
-                    Text(
-                      status == 'compareceu' ? 'Presença confirmada' : 'Vai participar',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: status == 'compareceu' ? Colors.green.shade700 : Colors.orange.shade700,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const Spacer(),
-                    if (event.status == 'finalizado') ...[
-                      TextButton.icon(
-                        icon: const Icon(Icons.rate_review, size: 16),
-                        label: const Text('Avaliar evento'),
-                        onPressed: () async {
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisSize: MainAxisSize.max,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        if (event.status == 'finalizado') ...[
+                          TextButton.icon(
+                            icon: const Icon(Icons.rate_review, size: 16),
+                            label: const Text('Avaliar'),
+                            onPressed: () async {
                           // Verificar se usuário já avaliou
                           final auth = Provider.of<AuthProvider>(context, listen: false);
                           final userId = auth.currentUser?.id;
@@ -284,13 +295,13 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
                               },
                             ),
                           );
-                        },
-                      ),
-                      const SizedBox(width: 8),
-                      TextButton.icon(
-                        icon: const Icon(Icons.list_alt, size: 16),
-                        label: const Text('Ver avaliações'),
-                        onPressed: () {
+                            },
+                          ),
+                          const SizedBox(width: 8),
+                          TextButton.icon(
+                            icon: const Icon(Icons.list_alt, size: 16),
+                            label: const Text('Avaliações'),
+                            onPressed: () {
                           showModalBottomSheet(
                             context: context,
                             isScrollControlled: true,
@@ -307,9 +318,11 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
                               },
                             ),
                           );
-                        },
-                      ),
-                    ],
+                            },
+                          ),
+                        ],
+                      ],
+                    ),
                   ],
                 ),
               ),
