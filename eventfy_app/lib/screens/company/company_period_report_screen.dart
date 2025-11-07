@@ -37,7 +37,7 @@ class _CompanyPeriodReportScreenState extends State<CompanyPeriodReportScreen> {
     _loadMonthlyStats();
   }
 
-  Future<void> _loadMonthlyStats() async {
+  Future<void> _loadMonthlyStats({DateTimeRange? range}) async {
     setState(() {
       _monthlyLoading = true;
     });
@@ -48,15 +48,46 @@ class _CompanyPeriodReportScreenState extends State<CompanyPeriodReportScreen> {
         NotificationService.instance.showError('Empresa não encontrada');
         return;
       }
-      final monthlyRes = await supabase.rpc('get_company_monthly_progress', params: {
+      // Se um período estiver selecionado, alinhar meses ao intervalo selecionado
+      String? startIso;
+      String? endIso;
+      if (range != null) {
+        final startMonth = _firstDayOfMonth(range.start).toUtc();
+        final endMonth = _firstDayOfMonth(range.end).toUtc();
+        startIso = startMonth.toIso8601String();
+        endIso = endMonth.toIso8601String();
+      } else if (_selectedRange != null) {
+        final startMonth = _firstDayOfMonth(_selectedRange!.start).toUtc();
+        final endMonth = _firstDayOfMonth(_selectedRange!.end).toUtc();
+        startIso = startMonth.toIso8601String();
+        endIso = endMonth.toIso8601String();
+      }
+
+      final Map<String, dynamic> params = {
         'p_company_id': company.id,
-        'p_months': 6,
-      });
+        'p_start_month': startIso, // sempre envia, mesmo null, para desambiguar overload
+        'p_end_month': endIso,     // sempre envia, mesmo null
+        'p_months': 12, // fallback quando não houver eventos e nenhum período: usa últimos 12 meses
+        'p_from_first_event': true,
+      };
+
+      final monthlyRes = await supabase.rpc('get_company_monthly_progress', params: params);
       final monthlyList = (monthlyRes as List?)?.map((e) => Map<String, dynamic>.from(e as Map)).toList() ?? [];
-      // Filtrar para não mostrar o mês atual no comparativo
+      // Filtrar para não mostrar o mês atual no comparativo APENAS se o período terminar no mês corrente.
       final now = DateTime.now();
       final nowLabel = '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}';
-      final filtered = monthlyList.where((m) => (m['month_label'] as String?) != nowLabel).toList();
+      final bool endsInCurrentMonth = (() {
+        final r = range ?? _selectedRange;
+        if (r == null) return true; // quando não há período, manter comportamento anterior e ocultar mês corrente
+        return r.end.year == now.year && r.end.month == now.month;
+      })();
+      List<Map<String, dynamic>> filtered = endsInCurrentMonth
+          ? monthlyList.where((m) => (m['month_label'] as String?) != nowLabel).toList()
+          : monthlyList;
+      // Caso o filtro remova todos os meses (ex.: selecionar apenas o mês corrente), mantenha a lista original
+      if (filtered.isEmpty && monthlyList.isNotEmpty) {
+        filtered = monthlyList;
+      }
 
       setState(() {
         _monthlyStats = monthlyList;
@@ -92,6 +123,7 @@ class _CompanyPeriodReportScreenState extends State<CompanyPeriodReportScreen> {
       });
       // Gera automaticamente ao escolher o período, para uma UX mais fluida
       await _generatePeriodReport();
+      await _loadMonthlyStats(range: picked);
     }
   }
 
@@ -107,6 +139,9 @@ class _CompanyPeriodReportScreenState extends State<CompanyPeriodReportScreen> {
     setState(() {
       _selectedRange = DateTimeRange(start: start, end: end);
     });
+    // Atualiza relatório e progresso mensal com o novo período
+    _generatePeriodReport();
+    _loadMonthlyStats(range: _selectedRange);
   }
 
   Future<void> _pickMonthRangeQuick() async {
@@ -182,6 +217,7 @@ class _CompanyPeriodReportScreenState extends State<CompanyPeriodReportScreen> {
                 });
                 Navigator.of(context).pop();
                 _generatePeriodReport();
+                _loadMonthlyStats(range: _selectedRange);
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.deepPurple.shade700,
@@ -518,41 +554,51 @@ class _CompanyPeriodReportScreenState extends State<CompanyPeriodReportScreen> {
                                   const SizedBox(height: 8),
                                   Builder(
                                     builder: (context) {
-                                      // Usar valores cumulativos fornecidos pelo backend
+                                      // Valores cumulativos (base -> atual) e delta mês-a-mês (positivos ou negativos)
                                       final Map<String, dynamic> current = _monthlyStatsFiltered[_selectedMonthIndex];
-                                      final int baseEvents = _selectedMonthIndex > 0
-                                          ? (((_monthlyStatsFiltered[_selectedMonthIndex - 1]['events_cumulative'] as num?) ?? 0).toInt())
-                                          : 0;
+                                      final Map<String, dynamic>? prev = _selectedMonthIndex > 0 ? _monthlyStatsFiltered[_selectedMonthIndex - 1] : null;
+
+                                      // Cumulativos para exibição base → atual
+                                      final int baseEvents = prev != null ? (((prev['events_cumulative'] as num?) ?? 0).toInt()) : 0;
                                       final int currEvents = ((current['events_cumulative'] as num?) ?? 0).toInt();
 
-                                      final int baseConfirmed = _selectedMonthIndex > 0
-                                          ? (((_monthlyStatsFiltered[_selectedMonthIndex - 1]['confirmed_cumulative'] as num?) ?? 0).toInt())
-                                          : 0;
+                                      final int baseConfirmed = prev != null ? (((prev['confirmed_cumulative'] as num?) ?? 0).toInt()) : 0;
                                       final int currConfirmed = ((current['confirmed_cumulative'] as num?) ?? 0).toInt();
 
-                                      final int baseAttended = _selectedMonthIndex > 0
-                                          ? (((_monthlyStatsFiltered[_selectedMonthIndex - 1]['attended_cumulative'] as num?) ?? 0).toInt())
-                                          : 0;
+                                      final int baseAttended = prev != null ? (((prev['attended_cumulative'] as num?) ?? 0).toInt()) : 0;
                                       final int currAttended = ((current['attended_cumulative'] as num?) ?? 0).toInt();
 
-                                      final int baseReviews = _selectedMonthIndex > 0
-                                          ? (((_monthlyStatsFiltered[_selectedMonthIndex - 1]['reviews_cumulative'] as num?) ?? 0).toInt())
-                                          : 0;
+                                      final int baseReviews = prev != null ? (((prev['reviews_cumulative'] as num?) ?? 0).toInt()) : 0;
                                       final int currReviews = ((current['reviews_cumulative'] as num?) ?? 0).toInt();
 
-                                      // Progresso da média (não cumulativa): mês atual vs mês anterior, fornecido pelo backend
+                                      // Deltas mês-a-mês
+                                      final int eventsDelta = _selectedMonthIndex > 0
+                                          ? (((current['events_month'] as num?) ?? 0).toInt() - (((prev?['events_month'] as num?) ?? 0).toInt()))
+                                          : 0;
+                                      final int confirmedDelta = _selectedMonthIndex > 0
+                                          ? (((current['confirmed_month'] as num?) ?? 0).toInt() - (((prev?['confirmed_month'] as num?) ?? 0).toInt()))
+                                          : 0;
+                                      final int attendedDelta = _selectedMonthIndex > 0
+                                          ? (((current['attended_month'] as num?) ?? 0).toInt() - (((prev?['attended_month'] as num?) ?? 0).toInt()))
+                                          : 0;
+                                      final int reviewsDelta = _selectedMonthIndex > 0
+                                          ? (((current['reviews_month'] as num?) ?? 0).toInt() - (((prev?['reviews_month'] as num?) ?? 0).toInt()))
+                                          : 0;
+
+                                      // Média: mês atual vs mês anterior
                                       final double prevAvgRating = (((current['average_rating_prev'] as num?) ?? 0.0).toDouble());
                                       final double currAvgRating = (((current['average_rating_month'] as num?) ?? 0.0).toDouble());
+                                      final double avgDelta = _selectedMonthIndex > 0 ? (currAvgRating - prevAvgRating) : 0.0;
 
                                       return Wrap(
                                         spacing: 6,
                                         runSpacing: 6,
                                         children: [
-                                          _ProgressChip(label: 'Eventos', baseValue: baseEvents, currentValue: currEvents),
-                                          _ProgressChip(label: 'Confirmados', baseValue: baseConfirmed, currentValue: currConfirmed),
-                                          _ProgressChip(label: 'Compareceram', baseValue: baseAttended, currentValue: currAttended),
-                                          _ProgressChip(label: 'Reviews', baseValue: baseReviews, currentValue: currReviews),
-                                          _ProgressChip(label: 'Média ★', baseValue: prevAvgRating, currentValue: currAvgRating, isDouble: true),
+                                          _ProgressChip(label: 'Eventos', baseValue: baseEvents, currentValue: currEvents, overrideDelta: eventsDelta),
+                                          _ProgressChip(label: 'Confirmados', baseValue: baseConfirmed, currentValue: currConfirmed, overrideDelta: confirmedDelta),
+                                          _ProgressChip(label: 'Compareceram', baseValue: baseAttended, currentValue: currAttended, overrideDelta: attendedDelta),
+                                          _ProgressChip(label: 'Reviews', baseValue: baseReviews, currentValue: currReviews, overrideDelta: reviewsDelta),
+                                          _ProgressChip(label: 'Média ★', baseValue: prevAvgRating, currentValue: currAvgRating, isDouble: true, overrideDelta: avgDelta),
                                         ],
                                       );
                                     },
@@ -717,19 +763,22 @@ class _ProgressChip extends StatelessWidget {
   final num baseValue; // valor cumulativo até o mês anterior (ou valor anterior)
   final num currentValue; // valor cumulativo do mês atual (ou valor atual)
   final bool isDouble;
+  final num? overrideDelta; // quando fornecido, usa delta mês-a-mês (pode ser negativo)
   const _ProgressChip({
     Key? key,
     required this.label,
     required this.baseValue,
     required this.currentValue,
     this.isDouble = false,
+    this.overrideDelta,
   }) : super(key: key);
 
   String _fmt(num v) => isDouble ? (v as num).toDouble().toStringAsFixed(2) : v.toInt().toString();
 
   @override
   Widget build(BuildContext context) {
-    final num delta = currentValue - baseValue;
+    final num computedDelta = currentValue - baseValue;
+    final num delta = overrideDelta ?? computedDelta;
     final bool hasChange = delta != 0;
     final bool isPositive = delta > 0;
     final Color arrowColor = isPositive ? Colors.green.shade700 : Colors.red.shade700;

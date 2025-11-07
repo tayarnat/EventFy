@@ -269,7 +269,12 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       
       // Criar evento no backend
       final categoryIds = _selectedCategories.map((category) => category.id).toList();
-      await eventsProvider.createEvent(event, _selectedImage, categoryIds);
+      final created = await eventsProvider.createEvent(event, _selectedImage, categoryIds);
+      
+      // Atualizar o perfil da empresa para refletir a nova contagem de eventos
+      if (created) {
+        await authProvider.refreshUserProfile();
+      }
       
       if (mounted) {
         ErrorNotification.showSuccess(

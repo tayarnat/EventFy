@@ -32,11 +32,16 @@ class EventsProvider with ChangeNotifier {
   List<String> _selectedCategories = [];
   double _maxDistance = 50.0; // km
   bool _showOnlyFreeEvents = false;
+  // Filtro por data (intervalo opcional)
+  DateTime? _startDateFilter;
+  DateTime? _endDateFilter;
   
   String get searchQuery => _searchQuery;
   List<String> get selectedCategories => _selectedCategories;
   double get maxDistance => _maxDistance;
   bool get showOnlyFreeEvents => _showOnlyFreeEvents;
+  DateTime? get startDateFilter => _startDateFilter;
+  DateTime? get endDateFilter => _endDateFilter;
   
   // Eventos filtrados
   List<EventModel> get filteredEvents {
@@ -62,6 +67,20 @@ class EventsProvider with ChangeNotifier {
     // Filtro por eventos gratuitos
     if (_showOnlyFreeEvents) {
       filtered = filtered.where((event) => event.isGratuito).toList();
+    }
+
+    // Filtro por intervalo de datas
+    if (_startDateFilter != null || _endDateFilter != null) {
+      final DateTime start = _startDateFilter ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final DateTime end = _endDateFilter ?? DateTime.utc(9999, 12, 31);
+      filtered = filtered.where((event) {
+        final DateTime eStart = event.dataInicio;
+        final DateTime eEnd = event.dataFim;
+        // Considerar eventos que tenham qualquer interseção com o intervalo selecionado
+        final bool overlaps = (eStart.isBefore(end) || eStart.isAtSameMomentAs(end)) &&
+                              (eEnd.isAfter(start) || eEnd.isAtSameMomentAs(start));
+        return overlaps;
+      }).toList();
     }
     
     // Filtro por distância (se temos localização)
@@ -272,12 +291,33 @@ class EventsProvider with ChangeNotifier {
     }
     notifyListeners();
   }
+
+  // Definir intervalo de datas para filtro
+  void setDateRange(DateTime? start, DateTime? end) {
+    // Normalizar para incluir o dia completo: início às 00:00:00 e fim às 23:59:59.999
+    _startDateFilter = start != null
+        ? DateTime(start.year, start.month, start.day, 0, 0, 0, 0)
+        : null;
+    _endDateFilter = end != null
+        ? DateTime(end.year, end.month, end.day, 23, 59, 59, 999)
+        : null;
+    notifyListeners();
+  }
+
+  // Limpar filtro de data
+  void clearDateFilter() {
+    _startDateFilter = null;
+    _endDateFilter = null;
+    notifyListeners();
+  }
   
   void clearFilters() {
     _searchQuery = '';
     _selectedCategories.clear();
     _maxDistance = 50.0;
     _showOnlyFreeEvents = false;
+    _startDateFilter = null;
+    _endDateFilter = null;
     notifyListeners();
   }
   

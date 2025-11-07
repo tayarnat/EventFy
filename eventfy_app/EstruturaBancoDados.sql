@@ -397,6 +397,110 @@ CREATE TRIGGER update_company_stats_on_review
     AFTER INSERT OR UPDATE OR DELETE ON event_reviews 
     FOR EACH ROW EXECUTE FUNCTION update_company_stats();
 
+-- Atualizar estatísticas da empresa quando eventos são criados/alterados/removidos
+CREATE OR REPLACE FUNCTION update_company_stats_on_event()
+RETURNS TRIGGER AS $$
+DECLARE
+    target_event UUID;
+    target_company UUID;
+BEGIN
+    -- Capturar o ID do evento diretamente da linha de eventos
+    target_event := COALESCE(NEW.id, OLD.id);
+
+    IF target_event IS NULL THEN
+        RETURN COALESCE(NEW, OLD);
+    END IF;
+
+    SELECT company_id INTO target_company
+    FROM events
+    WHERE id = target_event;
+
+    -- Se não encontrar empresa, apenas retorna
+    IF target_company IS NULL THEN
+        RETURN COALESCE(NEW, OLD);
+    END IF;
+
+    -- Atualizar estatísticas da empresa (total de eventos e média de avaliações)
+    UPDATE companies SET 
+        total_events_created = (
+            SELECT COUNT(*) FROM events WHERE company_id = target_company
+        ),
+        average_rating = (
+            SELECT COALESCE(AVG(er.rating), 0)
+            FROM event_reviews er
+            JOIN events e ON er.event_id = e.id
+            WHERE e.company_id = target_company
+        )
+    WHERE id = target_company;
+
+    RETURN COALESCE(NEW, OLD);
+END;
+$$ language 'plpgsql';
+
+-- Triggers para atualizar stats da empresa quando eventos mudam
+DROP TRIGGER IF EXISTS update_company_stats_on_event_insert ON events;
+DROP TRIGGER IF EXISTS update_company_stats_on_event_delete ON events;
+DROP TRIGGER IF EXISTS update_company_stats_on_event_update_company ON events;
+
+CREATE TRIGGER update_company_stats_on_event_insert
+    AFTER INSERT ON events
+    FOR EACH ROW EXECUTE FUNCTION update_company_stats_on_event();
+
+CREATE TRIGGER update_company_stats_on_event_delete
+    AFTER DELETE ON events
+    FOR EACH ROW EXECUTE FUNCTION update_company_stats_on_event();
+
+-- Caso o evento troque de empresa (company_id), atualizar estatísticas das duas
+CREATE OR REPLACE FUNCTION update_company_stats_on_event_company_change()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Atualiza empresa antiga
+    IF OLD.company_id IS NOT NULL THEN
+        UPDATE companies SET 
+            total_events_created = (
+                SELECT COUNT(*) FROM events WHERE company_id = OLD.company_id
+            ),
+            average_rating = (
+                SELECT COALESCE(AVG(er.rating), 0)
+                FROM event_reviews er
+                JOIN events e ON er.event_id = e.id
+                WHERE e.company_id = OLD.company_id
+            )
+        WHERE id = OLD.company_id;
+    END IF;
+
+    -- Atualiza empresa nova
+    IF NEW.company_id IS NOT NULL THEN
+        UPDATE companies SET 
+            total_events_created = (
+                SELECT COUNT(*) FROM events WHERE company_id = NEW.company_id
+            ),
+            average_rating = (
+                SELECT COALESCE(AVG(er.rating), 0)
+                FROM event_reviews er
+                JOIN events e ON er.event_id = e.id
+                WHERE e.company_id = NEW.company_id
+            )
+        WHERE id = NEW.company_id;
+    END IF;
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+CREATE TRIGGER update_company_stats_on_event_update_company
+    AFTER UPDATE OF company_id ON events
+    FOR EACH ROW EXECUTE FUNCTION update_company_stats_on_event_company_change();
+
+-- Backfill: corrigir estatística de total_events_created para empresas existentes
+-- Execute este bloco uma vez após criar os triggers para alinhar os dados atuais
+UPDATE companies c SET total_events_created = sub.cnt
+FROM (
+    SELECT company_id, COUNT(*) AS cnt
+    FROM events
+    GROUP BY company_id
+) AS sub
+WHERE c.id = sub.company_id;
+
 -- Função para atualizar capacidade atual do evento
 CREATE OR REPLACE FUNCTION update_event_capacity()
 RETURNS TRIGGER AS $$

@@ -597,23 +597,37 @@ $$;
 GRANT EXECUTE ON FUNCTION public.get_company_monthly_stats(uuid, integer) TO authenticated;
 
 -- Monthly progress (cumulative) for a company
+-- Ensure no ambiguous overload remains (removes legacy 3-arg version)
+DROP FUNCTION IF EXISTS public.get_company_monthly_progress(uuid, integer, boolean);
 CREATE OR REPLACE FUNCTION public.get_company_monthly_progress(
   p_company_id uuid,
-  p_months integer DEFAULT 6
+  p_start_month timestamptz DEFAULT NULL,
+  p_end_month timestamptz DEFAULT NULL,
+  p_months integer DEFAULT 6,
+  p_from_first_event boolean DEFAULT true
 )
 RETURNS TABLE (
   month_start timestamptz,
   month_label text,
   events_month integer,
+  events_prev_month integer,
+  events_delta integer,
   events_cumulative integer,
   confirmed_month integer,
+  confirmed_prev_month integer,
+  confirmed_delta integer,
   confirmed_cumulative integer,
   attended_month integer,
+  attended_prev_month integer,
+  attended_delta integer,
   attended_cumulative integer,
   reviews_month integer,
+  reviews_prev_month integer,
+  reviews_delta integer,
   reviews_cumulative integer,
   average_rating_month numeric(3,2),
-  average_rating_prev numeric(3,2)
+  average_rating_prev numeric(3,2),
+  average_rating_delta numeric(3,2)
 )
 LANGUAGE plpgsql SECURITY DEFINER
 AS $$
@@ -623,9 +637,28 @@ BEGIN
     RAISE EXCEPTION 'permission denied' USING ERRCODE = '28000';
   END IF;
   RETURN QUERY
-  WITH months AS (
-    SELECT date_trunc('month', NOW()) - (make_interval(months => s)) AS month_start
-    FROM generate_series(0, GREATEST(p_months, 1) - 1) AS s
+  WITH first_event AS (
+    SELECT date_trunc('month', MIN(e.data_inicio)) AS first_month
+    FROM events e
+    WHERE e.company_id = p_company_id
+  ),
+  start_end AS (
+    SELECT 
+      CASE 
+        WHEN p_start_month IS NOT NULL THEN date_trunc('month', p_start_month)
+        WHEN p_from_first_event AND fe.first_month IS NOT NULL THEN fe.first_month
+        ELSE date_trunc('month', NOW()) - (INTERVAL '1 month' * (GREATEST(p_months, 1) - 1))
+      END AS start_month,
+      CASE
+        WHEN p_end_month IS NOT NULL THEN date_trunc('month', p_end_month)
+        ELSE date_trunc('month', NOW())
+      END AS end_month
+    FROM first_event fe
+  ),
+  months AS (
+    SELECT date_trunc('month', g) AS month_start
+    FROM start_end se,
+         generate_series(se.start_month, se.end_month, INTERVAL '1 month') AS g
   ),
   events_in_month AS (
     SELECT m.month_start,
@@ -687,18 +720,27 @@ BEGIN
     a.month_start,
     to_char(a.month_start, 'YYYY-MM') AS month_label,
     a.events_month,
+    LAG(a.events_month) OVER (ORDER BY a.month_start ASC) AS events_prev_month,
+    (a.events_month - COALESCE(LAG(a.events_month) OVER (ORDER BY a.month_start ASC), 0))::integer AS events_delta,
     (SUM(a.events_month) OVER (ORDER BY a.month_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW))::integer AS events_cumulative,
     a.confirmed_month,
+    LAG(a.confirmed_month) OVER (ORDER BY a.month_start ASC) AS confirmed_prev_month,
+    (a.confirmed_month - COALESCE(LAG(a.confirmed_month) OVER (ORDER BY a.month_start ASC), 0))::integer AS confirmed_delta,
     (SUM(a.confirmed_month) OVER (ORDER BY a.month_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW))::integer AS confirmed_cumulative,
     a.attended_month,
+    LAG(a.attended_month) OVER (ORDER BY a.month_start ASC) AS attended_prev_month,
+    (a.attended_month - COALESCE(LAG(a.attended_month) OVER (ORDER BY a.month_start ASC), 0))::integer AS attended_delta,
     (SUM(a.attended_month) OVER (ORDER BY a.month_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW))::integer AS attended_cumulative,
     a.reviews_month,
+    LAG(a.reviews_month) OVER (ORDER BY a.month_start ASC) AS reviews_prev_month,
+    (a.reviews_month - COALESCE(LAG(a.reviews_month) OVER (ORDER BY a.month_start ASC), 0))::integer AS reviews_delta,
     (SUM(a.reviews_month) OVER (ORDER BY a.month_start ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW))::integer AS reviews_cumulative,
     a.average_rating_month,
-    LAG(a.average_rating_month) OVER (ORDER BY a.month_start ASC) AS average_rating_prev
+    LAG(a.average_rating_month) OVER (ORDER BY a.month_start ASC) AS average_rating_prev,
+    (a.average_rating_month - COALESCE(LAG(a.average_rating_month) OVER (ORDER BY a.month_start ASC), 0))::numeric(3,2) AS average_rating_delta
   FROM aggregated a
   ORDER BY a.month_start ASC;
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.get_company_monthly_progress(uuid, integer) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_company_monthly_progress(uuid, timestamptz, timestamptz, integer, boolean) TO authenticated;

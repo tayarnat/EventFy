@@ -509,6 +509,13 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  String _formatDate(DateTime date) {
+    final d = date.day.toString().padLeft(2, '0');
+    final m = date.month.toString().padLeft(2, '0');
+    final y = date.year.toString();
+    return '$d/$m/$y';
+  }
+
   void _showFiltersBottomSheet(BuildContext context, EventsProvider eventsProvider) {
     showModalBottomSheet(
       context: context,
@@ -605,7 +612,7 @@ class _MapScreenState extends State<MapScreen> {
                     const SizedBox(height: 24),
                     
                     // Eventos gratuitos
-                    Consumer<EventsProvider>(
+                  Consumer<EventsProvider>(
                       builder: (context, provider, child) => CheckboxListTile(
                         title: const Text('Apenas eventos gratuitos'),
                         subtitle: const Text('Mostrar somente eventos sem custo'),
@@ -616,6 +623,63 @@ class _MapScreenState extends State<MapScreen> {
                         },
                         contentPadding: EdgeInsets.zero,
                       ),
+                    ),
+                    
+                    const SizedBox(height: 24),
+
+                    // Filtro por Data (intervalo)
+                    const Text(
+                      'Data',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Consumer<EventsProvider>(
+                      builder: (context, provider, child) {
+                        final hasDateFilter = provider.startDateFilter != null || provider.endDateFilter != null;
+                        final startLabel = provider.startDateFilter != null ? _formatDate(provider.startDateFilter!) : 'Início';
+                        final endLabel = provider.endDateFilter != null ? _formatDate(provider.endDateFilter!) : 'Fim';
+                        return Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                icon: const Icon(Icons.date_range),
+                                label: Text(hasDateFilter ? '$startLabel - $endLabel' : 'Selecionar intervalo'),
+                                onPressed: () async {
+                                  final now = DateTime.now();
+                                  final initialRange = (provider.startDateFilter != null && provider.endDateFilter != null)
+                                      ? DateTimeRange(start: provider.startDateFilter!, end: provider.endDateFilter!)
+                                      : DateTimeRange(start: now, end: now.add(const Duration(days: 7)));
+                                  final picked = await showDateRangePicker(
+                                    context: context,
+                                    firstDate: now.subtract(const Duration(days: 365)),
+                                    lastDate: now.add(const Duration(days: 365 * 2)),
+                                    initialDateRange: initialRange,
+                                    helpText: 'Selecione o intervalo de datas',
+                                  );
+                                  if (picked != null) {
+                                    provider.setDateRange(picked.start, picked.end);
+                                    _onEventsChanged();
+                                  }
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            IconButton(
+                              tooltip: 'Limpar filtro de data',
+                              icon: const Icon(Icons.clear),
+                              onPressed: hasDateFilter
+                                  ? () {
+                                      provider.clearDateFilter();
+                                      _onEventsChanged();
+                                    }
+                                  : null,
+                            ),
+                          ],
+                        );
+                      },
                     ),
                     
                     const SizedBox(height: 24),
@@ -770,11 +834,15 @@ class _MapScreenState extends State<MapScreen> {
                     // Indicadores de filtros ativos
                     if (eventsProvider.selectedCategories.isNotEmpty || 
                         eventsProvider.showOnlyFreeEvents ||
-                        eventsProvider.maxDistance < 50.0)
+                        eventsProvider.maxDistance < 50.0 ||
+                        eventsProvider.startDateFilter != null ||
+                        eventsProvider.endDateFilter != null)
                       const SizedBox(height: 8),
                     if (eventsProvider.selectedCategories.isNotEmpty || 
                         eventsProvider.showOnlyFreeEvents ||
-                        eventsProvider.maxDistance < 50.0)
+                        eventsProvider.maxDistance < 50.0 ||
+                        eventsProvider.startDateFilter != null ||
+                        eventsProvider.endDateFilter != null)
                       Card(
                         elevation: 4,
                         child: Padding(
@@ -800,6 +868,19 @@ class _MapScreenState extends State<MapScreen> {
                                   deleteIcon: const Icon(Icons.close, size: 16),
                                   onDeleted: () {
                                     eventsProvider.setMaxDistance(50.0);
+                                    _onEventsChanged();
+                                  },
+                                ),
+                              if (eventsProvider.startDateFilter != null || eventsProvider.endDateFilter != null)
+                                Chip(
+                                  label: Text(
+                                    '${eventsProvider.startDateFilter != null ? _formatDate(eventsProvider.startDateFilter!) : 'Início'} - ${eventsProvider.endDateFilter != null ? _formatDate(eventsProvider.endDateFilter!) : 'Fim'}',
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                  backgroundColor: Colors.purple.shade100,
+                                  deleteIcon: const Icon(Icons.close, size: 16),
+                                  onDeleted: () {
+                                    eventsProvider.clearDateFilter();
                                     _onEventsChanged();
                                   },
                                 ),
