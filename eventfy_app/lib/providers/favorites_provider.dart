@@ -199,8 +199,8 @@ class FavoritesProvider with ChangeNotifier {
     }
     final company = CompanyModel.fromJson(companyRes as Map<String, dynamic>);
 
-    // Avaliações recentes (via RPC)
-    final reviewsRes = await supabase.rpc('get_company_reviews', params: {
+    // Avaliações recentes (via RPC pública)
+    final reviewsRes = await supabase.rpc('get_company_reviews_public', params: {
       'p_company_id': companyId,
       'p_limit': 10,
       'p_offset': 0,

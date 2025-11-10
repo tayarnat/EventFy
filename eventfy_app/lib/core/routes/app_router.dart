@@ -14,6 +14,9 @@ import '../../screens/map/map_screen.dart';
 import '../../screens/profile/attendance_history_screen.dart';
 import '../../screens/profile/favorites_screen.dart';
 import '../../screens/company/company_details_screen.dart';
+import '../../screens/company/company_event_details_screen.dart';
+import '../../providers/events_provider.dart';
+import '../../models/event_model.dart';
 
 /// Classe responsável por gerenciar as rotas da aplicação usando GoRouter
 class AppRouter {
@@ -72,6 +75,36 @@ class AppRouter {
         path: '/company/create-event',
         name: 'create_event',
         builder: (context, state) => const CreateEventScreen(),
+      ),
+      // Detalhes de evento (para empresas)
+      GoRoute(
+        path: '/company/event/details',
+        name: 'company_event_details',
+        builder: (context, state) {
+          final extra = state.extra;
+          if (extra is EventModel) {
+            return CompanyEventDetailsScreen(event: extra);
+          }
+          final eventId = state.uri.queryParameters['id'];
+          if (eventId == null) {
+            return const Scaffold(body: Center(child: Text('Evento não informado')));
+          }
+          final eventsProvider = Provider.of<EventsProvider>(context, listen: false);
+          final authProvider = Provider.of<AuthProvider>(context, listen: false);
+          final event = eventsProvider.events.firstWhere(
+            (e) => e.id == eventId,
+            orElse: () => EventModel.create(
+              companyId: authProvider.currentCompany?.id ?? '',
+              titulo: 'Evento',
+              endereco: '',
+              latitude: 0,
+              longitude: 0,
+              dataInicio: DateTime.now(),
+              dataFim: DateTime.now().add(const Duration(hours: 1)),
+            ),
+          );
+          return CompanyEventDetailsScreen(event: event);
+        },
       ),
       GoRoute(
         path: '/map',

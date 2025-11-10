@@ -64,32 +64,32 @@ class AuthProvider extends ChangeNotifier implements Listenable {
             .eq('id', userId)
             .single();
         
-        // Mapear os campos do banco para o modelo da empresa
+        // Mapear os campos do banco para o modelo da empresa (snake_case para compatibilidade com CompanyModel.fromJson)
         final mappedResponse = {
           'id': response['id'],
           'email': supabase.auth.currentUser!.email ?? '',
           'cnpj': response['cnpj'],
-          'nomeFantasia': response['nome_fantasia'],
-          'razaoSocial': response['razao_social'],
+          'nome_fantasia': response['nome_fantasia'],
+          'razao_social': response['razao_social'],
           'telefone': response['telefone'],
           'endereco': response['endereco'],
           'latitude': null, // Será preenchido se location estiver disponível
           'longitude': null, // Será preenchido se location estiver disponível
-          'logoUrl': response['logo_url'],
+          'logo_url': response['logo_url'],
           'website': response['website'],
           'instagram': response['instagram'],
           'facebook': response['facebook'],
-          'responsavelNome': response['responsavel_nome'],
-          'responsavelCpf': response['responsavel_cpf'],
-          'responsavelTelefone': response['responsavel_telefone'],
-          'responsavelEmail': response['responsavel_email'],
+          'responsavel_nome': response['responsavel_nome'],
+          'responsavel_cpf': response['responsavel_cpf'],
+          'responsavel_telefone': response['responsavel_telefone'],
+          'responsavel_email': response['responsavel_email'],
           'verificada': response['verificada'] ?? false,
-          'verificadaEm': response['verificada_em'],
-          'totalEventsCreated': response['total_events_created'] ?? 0,
-          'averageRating': response['average_rating'] ?? 0.0,
-          'totalFollowers': response['total_followers'] ?? 0,
-          'createdAt': response['created_at'] ?? DateTime.now().toIso8601String(),
-          'updatedAt': response['updated_at'] ?? DateTime.now().toIso8601String(),
+          'verificada_em': response['verificada_em'],
+          'total_events_created': response['total_events_created'] ?? 0,
+          'average_rating': response['average_rating'] ?? 0.0,
+          'total_followers': response['total_followers'] ?? 0,
+          'created_at': response['created_at'] ?? DateTime.now().toIso8601String(),
+          'updated_at': response['updated_at'] ?? DateTime.now().toIso8601String(),
         };
 
         _currentCompany = CompanyModel.fromJson(mappedResponse);

@@ -133,7 +133,11 @@ class _MapScreenState extends State<MapScreen> {
       // Criar um canvas para desenhar o marcador personalizado
       final ui.PictureRecorder recorder = ui.PictureRecorder();
       final Canvas canvas = Canvas(recorder);
-      final Size size = const Size(100, 120);
+      // Tamanho base do desenho (será escalado via canvas.scale)
+      const Size baseSize = Size(100, 120);
+      final double s = scaleFactor <= 0 ? 1.0 : scaleFactor;
+      // Escalar todo o desenho para que o objeto cresça de fato com o zoom
+      canvas.scale(s);
 
       // Cor laranja padrão para todos os pins
       final Color pinColor = Colors.orange;
@@ -242,9 +246,10 @@ class _MapScreenState extends State<MapScreen> {
 
       // Finalizar o desenho
       final ui.Picture picture = recorder.endRecording();
+      // Renderizar a imagem com dimensões proporcionalmente maiores
       final ui.Image markerImage = await picture.toImage(
-        (size.width * scaleFactor).toInt(),
-        (size.height * scaleFactor).toInt(),
+        (baseSize.width * s).toInt(),
+        (baseSize.height * s).toInt(),
       );
       
       // Converter para bytes
@@ -399,16 +404,24 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Timer? _searchTimer;
+  Timer? _resizeTimer;
   
   void _onCameraMove(CameraPosition position) {
     // Cancelar timer anterior se existir
     _searchTimer?.cancel();
 
-    // Atualizar escala dos ícones quando o zoom mudar de faixa
+    // Atualiza o zoom corrente
+    _currentZoom = position.zoom;
+
+    // Atualizar escala dos ícones dos eventos de forma contínua conforme o zoom
     final double newScale = _getScaleForZoom(position.zoom);
-    if (newScale != _currentScale) {
+    if ((newScale - _currentScale).abs() >= 0.05) {
       _currentScale = newScale;
-      _rescaleMarkersForZoom(position.zoom);
+      // Debounce curto para não recriar ícones a cada frame
+      _resizeTimer?.cancel();
+      _resizeTimer = Timer(const Duration(milliseconds: 150), () {
+        _rescaleMarkersForZoom(_currentZoom);
+      });
     }
     
     // Criar novo timer com debounce de 1 segundo
@@ -418,10 +431,15 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   double _getScaleForZoom(double zoom) {
-    if (zoom >= 16.0) return 1.8; // mais detalhes no zoom alto
-    if (zoom >= 14.0) return 1.5; // padrão
-    if (zoom >= 12.0) return 1.2; // um pouco menor em zoom médio
-    return 1.0; // pequeno em zoom baixo
+    // Escala contínua para os ícones dos eventos: de 1.0 (zoom <= 10) até 2.0 (zoom >= 18)
+    const double minZoom = 10.0;
+    const double maxZoom = 18.0;
+    const double minScale = 1.0;
+    const double maxScale = 2.0; // chegar ao dobro do tamanho
+    if (zoom <= minZoom) return minScale;
+    if (zoom >= maxZoom) return maxScale;
+    final double t = (zoom - minZoom) / (maxZoom - minZoom);
+    return minScale + (maxScale - minScale) * t; // mapeamento linear
   }
 
   Future<void> _rescaleMarkersForZoom(double zoom) async {

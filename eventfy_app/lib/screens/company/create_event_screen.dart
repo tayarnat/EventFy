@@ -15,7 +15,8 @@ import '../../widgets/common/custom_button.dart';
 import '../../widgets/common/error_notification.dart';
 
 class CreateEventScreen extends StatefulWidget {
-  const CreateEventScreen({super.key});
+  final EventModel? initialEvent;
+  const CreateEventScreen({super.key, this.initialEvent});
 
   @override
   State<CreateEventScreen> createState() => _CreateEventScreenState();
@@ -53,12 +54,40 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   
   bool _isLoading = false;
   
+  bool get _isEditing => widget.initialEvent != null;
+  
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadCategories();
     });
+    // Prefill basic fields if editing; categories will be handled after loading
+    if (_isEditing) {
+      final e = widget.initialEvent!;
+      _titleController.text = e.titulo;
+      _descriptionController.text = e.descricao ?? '';
+      _addressController.text = e.endereco;
+      if (!e.isGratuito && e.valor != null) {
+        _priceController.text = e.valor!.toStringAsFixed(2);
+      }
+      if (e.capacidade != null) {
+        _capacityController.text = e.capacidade!.toString();
+      }
+      _minAgeController.text = e.idadeMinima.toString();
+      _externalLinkController.text = e.linkExterno ?? '';
+      _streamingLinkController.text = e.linkStreaming ?? '';
+      _isFree = e.isGratuito;
+      _isOnline = e.isOnline;
+      _isPresential = e.isPresencial;
+      _requiresApproval = e.requiresApproval;
+      _selectedLatitude = e.latitude;
+      _selectedLongitude = e.longitude;
+      _startDate = DateTime(e.dataInicio.year, e.dataInicio.month, e.dataInicio.day);
+      _startTime = TimeOfDay.fromDateTime(e.dataInicio);
+      _endDate = DateTime(e.dataFim.year, e.dataFim.month, e.dataFim.day);
+      _endTime = TimeOfDay.fromDateTime(e.dataFim);
+    }
   }
   
   Future<void> _loadCategories() async {
@@ -66,6 +95,13 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     await preferencesProvider.loadCategories();
     setState(() {
       _availableCategories = preferencesProvider.categories;
+      // Prefill selected categories if editing
+      if (_isEditing && widget.initialEvent!.categorias != null) {
+        final names = widget.initialEvent!.categorias!;
+        _selectedCategories = _availableCategories
+            .where((c) => names.contains(c.nome))
+            .toList();
+      }
     });
   }
   
@@ -303,7 +339,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Criar Evento'),
+        title: Text(_isEditing ? 'Editar Evento' : 'Criar Evento'),
         backgroundColor: Theme.of(context).primaryColor,
         foregroundColor: Colors.white,
       ),
@@ -334,21 +370,29 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                               fit: BoxFit.cover,
                             ),
                           )
-                        : const Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.add_photo_alternate,
-                                size: 48,
-                                color: Colors.grey,
-                              ),
-                              SizedBox(height: 8),
-                              Text(
-                                'Adicionar foto do evento',
-                                style: TextStyle(color: Colors.grey),
-                              ),
-                            ],
-                          ),
+                        : (widget.initialEvent?.fotoPrincipalUrl != null
+                            ? ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: Image.network(
+                                  widget.initialEvent!.fotoPrincipalUrl!,
+                                  fit: BoxFit.cover,
+                                ),
+                              )
+                            : const Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.add_photo_alternate,
+                                    size: 48,
+                                    color: Colors.grey,
+                                  ),
+                                  SizedBox(height: 8),
+                                  Text(
+                                    'Adicionar foto do evento',
+                                    style: TextStyle(color: Colors.grey),
+                                  ),
+                                ],
+                              )),
                   ),
                 ),
               ),
@@ -620,12 +664,14 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
               SizedBox(
                 width: double.infinity,
                 child: CustomButton(
-                  onPressed: _isLoading ? null : _createEvent,
+                  onPressed: _isLoading 
+                      ? null 
+                      : (_isEditing ? _updateEvent : _createEvent),
                   child: _isLoading
-                      ? const Row(
+                      ? Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            SizedBox(
+                            const SizedBox(
                               width: 20,
                               height: 20,
                               child: CircularProgressIndicator(
@@ -633,11 +679,11 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                                 color: Colors.white,
                               ),
                             ),
-                            SizedBox(width: 8),
-                            Text('Criando...'),
+                            const SizedBox(width: 8),
+                            Text(_isEditing ? 'Salvando...' : 'Criando...'),
                           ],
                         )
-                      : const Text('Criar Evento'),
+                      : Text(_isEditing ? 'Salvar Alterações' : 'Criar Evento'),
                 ),
               ),
             ],
@@ -645,6 +691,104 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _updateEvent() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    if (_startDate == null || _startTime == null || _endDate == null || _endTime == null) {
+      ErrorNotification.show(
+        context,
+        'Por favor, selecione a data e hora de início e fim',
+      );
+      return;
+    }
+    if (_selectedLatitude == null || _selectedLongitude == null) {
+      ErrorNotification.show(
+        context,
+        'Por favor, selecione a localização no mapa',
+      );
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final eventsProvider = Provider.of<EventsProvider>(context, listen: false);
+
+      final startDateTime = DateTime(
+        _startDate!.year,
+        _startDate!.month,
+        _startDate!.day,
+        _startTime!.hour,
+        _startTime!.minute,
+      );
+      final endDateTime = DateTime(
+        _endDate!.year,
+        _endDate!.month,
+        _endDate!.day,
+        _endTime!.hour,
+        _endTime!.minute,
+      );
+
+      final updatedEvent = widget.initialEvent!.copyWith(
+        titulo: _titleController.text.trim(),
+        descricao: _descriptionController.text.trim().isEmpty
+            ? null
+            : _descriptionController.text.trim(),
+        endereco: _addressController.text.trim(),
+        latitude: _selectedLatitude!,
+        longitude: _selectedLongitude!,
+        dataInicio: startDateTime,
+        dataFim: endDateTime,
+        valor: _isFree ? null : double.tryParse(_priceController.text),
+        isGratuito: _isFree,
+        capacidade: _capacityController.text.isEmpty
+            ? null
+            : int.tryParse(_capacityController.text),
+        idadeMinima: _minAgeController.text.isEmpty
+            ? 0
+            : int.tryParse(_minAgeController.text) ?? 0,
+        linkExterno: _externalLinkController.text.trim().isEmpty
+            ? null
+            : _externalLinkController.text.trim(),
+        linkStreaming: _streamingLinkController.text.trim().isEmpty
+            ? null
+            : _streamingLinkController.text.trim(),
+        isOnline: _isOnline,
+        isPresencial: _isPresential,
+        requiresApproval: _requiresApproval,
+        updatedAt: DateTime.now(),
+      );
+
+      final categoryIds = _selectedCategories.map((c) => c.id).toList();
+      final ok = await eventsProvider.updateEvent(
+        widget.initialEvent!.id,
+        updatedEvent,
+        _selectedImage,
+        categoryIds,
+      );
+
+      if (ok) {
+        if (mounted) {
+          Navigator.pop(context, true);
+        }
+      } else {
+        ErrorNotification.show(context, eventsProvider.errorMessage ?? 'Falha ao atualizar evento');
+      }
+    } catch (e) {
+      ErrorNotification.show(context, 'Erro ao atualizar evento: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
   }
 }
 

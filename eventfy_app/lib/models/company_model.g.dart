@@ -8,31 +8,34 @@ part of 'company_model.dart';
 
 CompanyModel _$CompanyModelFromJson(Map<String, dynamic> json) => CompanyModel(
   id: json['id'] as String,
-  email: json['email'] as String,
+  // email não existe na tabela companies; usar valor padrão vazio quando não presente
+  email: (json['email'] as String?) ?? '',
   cnpj: json['cnpj'] as String,
-  nomeFantasia: json['nomeFantasia'] as String,
-  razaoSocial: json['razaoSocial'] as String?,
+  // mapear snake_case para camelCase
+  nomeFantasia: json['nome_fantasia'] as String,
+  razaoSocial: json['razao_social'] as String?,
   telefone: json['telefone'] as String?,
   endereco: json['endereco'] as String?,
+  // latitude/longitude não existem em companies (apenas location). Manter nulos.
   latitude: (json['latitude'] as num?)?.toDouble(),
   longitude: (json['longitude'] as num?)?.toDouble(),
-  logoUrl: json['logoUrl'] as String?,
+  logoUrl: json['logo_url'] as String?,
   website: json['website'] as String?,
   instagram: json['instagram'] as String?,
   facebook: json['facebook'] as String?,
-  responsavelNome: json['responsavelNome'] as String?,
-  responsavelCpf: json['responsavelCpf'] as String?,
-  responsavelTelefone: json['responsavelTelefone'] as String?,
-  responsavelEmail: json['responsavelEmail'] as String?,
+  responsavelNome: json['responsavel_nome'] as String?,
+  responsavelCpf: json['responsavel_cpf'] as String?,
+  responsavelTelefone: json['responsavel_telefone'] as String?,
+  responsavelEmail: json['responsavel_email'] as String?,
   verificada: json['verificada'] as bool? ?? false,
-  verificadaEm: json['verificadaEm'] == null
+  verificadaEm: json['verificada_em'] == null
       ? null
-      : DateTime.parse(json['verificadaEm'] as String),
-  totalEventsCreated: (json['totalEventsCreated'] as num?)?.toInt() ?? 0,
-  averageRating: (json['averageRating'] as num?)?.toDouble() ?? 0.0,
-  totalFollowers: (json['totalFollowers'] as num?)?.toInt() ?? 0,
-  createdAt: DateTime.parse(json['createdAt'] as String),
-  updatedAt: DateTime.parse(json['updatedAt'] as String),
+      : DateTime.parse(json['verificada_em'] as String),
+  totalEventsCreated: (json['total_events_created'] as num?)?.toInt() ?? 0,
+  averageRating: (json['average_rating'] as num?)?.toDouble() ?? 0.0,
+  totalFollowers: (json['total_followers'] as num?)?.toInt() ?? 0,
+  createdAt: DateTime.parse(json['created_at'] as String),
+  updatedAt: DateTime.parse(json['updated_at'] as String),
 );
 
 Map<String, dynamic> _$CompanyModelToJson(CompanyModel instance) =>

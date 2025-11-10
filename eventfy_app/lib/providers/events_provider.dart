@@ -468,6 +468,99 @@ class EventsProvider with ChangeNotifier {
     }
   }
 
+  // Atualizar evento existente
+  Future<bool> updateEvent(String eventId, EventModel updatedEvent, File? imageFile, List<String>? categoryIds) async {
+    try {
+      String? imageUrl;
+      // Upload de nova imagem se fornecida
+      if (imageFile != null) {
+        try {
+          final ext = imageFile.path.split('.').last;
+          final fileName = 'event_$eventId${DateTime.now().millisecondsSinceEpoch}.$ext';
+          final response = await _supabase.storage
+              .from('event-images')
+              .upload(fileName, imageFile);
+          if (response.isNotEmpty) {
+            imageUrl = _supabase.storage
+                .from('event-images')
+                .getPublicUrl(fileName);
+          }
+        } catch (e) {
+          NotificationService.instance.showError('Falha ao enviar imagem: $e');
+        }
+      }
+
+      // Preparar dados de atualização
+      final data = updatedEvent.toJson();
+      if (imageUrl != null) {
+        data['foto_principal_url'] = imageUrl;
+      }
+
+      final res = await _supabase
+          .from('events')
+          .update(data)
+          .eq('id', eventId)
+          .select()
+          .single();
+
+      if (res != null) {
+        // Atualizar relações de categorias
+        if (categoryIds != null) {
+          // Remove todas e insere novamente
+          await _supabase
+              .from('event_categories')
+              .delete()
+              .eq('event_id', eventId);
+
+          if (categoryIds.isNotEmpty) {
+            final relations = categoryIds.map((cid) => {
+              'event_id': eventId,
+              'category_id': cid,
+            }).toList();
+            await _supabase
+                .from('event_categories')
+                .insert(relations);
+          }
+        }
+
+        await loadEvents();
+        return true;
+      }
+      return false;
+    } catch (e) {
+      _errorMessage = 'Erro ao atualizar evento: $e';
+      NotificationService.instance.showError('Erro ao atualizar evento: $e');
+      notifyListeners();
+      return false;
+    }
+  }
+
+  // Cancelar evento
+  Future<bool> cancelEvent(String eventId) async {
+    try {
+      final res = await _supabase
+          .from('events')
+          .update({
+            'status': 'cancelado',
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', eventId)
+          .select()
+          .single();
+
+      if (res != null) {
+        await loadEvents();
+        return true;
+      }
+      return false;
+    } catch (e) {
+      _errorMessage = 'Erro ao cancelar evento: $e';
+      NotificationService.instance.showError('Erro ao cancelar evento: $e');
+      notifyListeners();
+      return false;
+    }
+  }
+
   // Carregar eventos de uma empresa específica
   Future<void> loadCompanyEvents(String companyId) async {
     _isLoadingEvents = true;

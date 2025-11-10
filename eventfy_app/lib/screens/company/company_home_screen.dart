@@ -10,6 +10,7 @@ import '../../services/notification_service.dart';
 import '../../core/config/supabase_config.dart';
 import 'company_profile_edit_screen.dart';
 import 'company_statistics_screen.dart';
+import 'company_event_details_screen.dart';
 class CompanyHomeScreen extends StatefulWidget {
   @override
   _CompanyHomeScreenState createState() => _CompanyHomeScreenState();
@@ -222,9 +223,11 @@ class _CompanyEventsTabState extends State<CompanyEventsTab> {
                                 return CompanyEventCard(
                                   event: event,
                                   onTap: () {
-                                    // TODO: Navegar para detalhes do evento
-                                    NotificationService.instance.showInfo(
-                                      'Detalhes do evento em desenvolvimento'
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) => CompanyEventDetailsScreen(event: event),
+                                      ),
                                     );
                                   },
                                 );

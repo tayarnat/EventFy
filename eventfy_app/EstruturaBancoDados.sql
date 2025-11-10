@@ -701,6 +701,15 @@ CREATE POLICY "Users can update own data" ON users FOR UPDATE USING (auth.uid() 
 CREATE POLICY "Companies can view own data" ON companies FOR SELECT USING (auth.uid() = id);
 CREATE POLICY "Companies can update own data" ON companies FOR UPDATE USING (auth.uid() = id);
 
+-- Permitir leitura pública (dentro do app) dos dados básicos das empresas
+-- IMPORTANTE: Se quiser restringir campos sensíveis, crie uma VIEW com os campos públicos
+-- e conceda SELECT apenas nessa VIEW.
+DROP POLICY IF EXISTS "Companies are publicly readable" ON companies;
+CREATE POLICY "Companies are publicly readable" ON companies
+    FOR SELECT
+    TO authenticated
+    USING (true);
+
 -- Eventos são públicos para leitura, mas só empresa dona pode editar
 CREATE POLICY "Events are publicly readable" ON events FOR SELECT USING (true);
 CREATE POLICY "Companies can manage their events" ON events 
@@ -905,3 +914,58 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION get_company_reviews(UUID, INTEGER, INTEGER) TO authenticated;
+
+-- Versão pública da função de avaliações por empresa (sem restrição ao owner)
+-- Essa função expõe apenas dados públicos e deve ser usada em telas para usuários
+-- (não empresa). Caso haja preocupação com vazamento de dados, crie regras de
+-- filtragem adicionais.
+DROP FUNCTION IF EXISTS get_company_reviews_public(UUID, INTEGER, INTEGER);
+CREATE OR REPLACE FUNCTION get_company_reviews_public(
+  p_company_id UUID,
+  p_limit INTEGER DEFAULT 50,
+  p_offset INTEGER DEFAULT 0
+)
+RETURNS TABLE (
+  id UUID,
+  user_id UUID,
+  event_id UUID,
+  event_title VARCHAR,
+  rating INTEGER,
+  titulo VARCHAR,
+  comentario TEXT,
+  is_anonymous BOOLEAN,
+  helpful_votes INTEGER,
+  created_at TIMESTAMP WITH TIME ZONE,
+  updated_at TIMESTAMP WITH TIME ZONE,
+  user_name VARCHAR,
+  user_photo TEXT
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    er.id,
+    er.user_id,
+    er.event_id,
+    e.titulo AS event_title,
+    er.rating,
+    er.titulo,
+    er.comentario,
+    er.is_anonymous,
+    er.helpful_votes,
+    er.created_at,
+    er.updated_at,
+    CASE WHEN er.is_anonymous THEN NULL ELSE u.nome END AS user_name,
+    CASE WHEN er.is_anonymous THEN NULL ELSE u.avatar_url END AS user_photo
+  FROM event_reviews er
+  JOIN events e ON e.id = er.event_id
+  JOIN users u ON u.id = er.user_id
+  WHERE e.company_id = p_company_id
+  ORDER BY er.created_at DESC
+  LIMIT p_limit OFFSET p_offset;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION get_company_reviews_public(UUID, INTEGER, INTEGER) TO authenticated;
