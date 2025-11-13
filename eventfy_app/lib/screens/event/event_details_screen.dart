@@ -141,10 +141,22 @@ class EventDetailsScreen extends StatelessWidget {
         'updated_at': DateTime.now().toIso8601String(),
       };
 
-      // upsert para evitar duplicata pela PK (user_id, event_id)
       await supabase.from('event_attendances').upsert(payload);
 
-      NotificationService.instance.showSuccess('Participação confirmada! Você receberá uma notificação quando o evento começar.');
+      try {
+        await supabase.from('notifications').insert({
+          'user_id': auth.currentUser!.id,
+          'tipo': 'event_start',
+          'titulo': 'Lembrete: ${event.titulo}',
+          'mensagem': 'Seu evento começa em breve. Faça o check-in quando chegar.',
+          'related_event_id': event.id,
+          'is_read': false,
+          'sent_at': event.dataInicio.toIso8601String(),
+          'created_at': DateTime.now().toIso8601String(),
+        });
+      } catch (_) {}
+
+      NotificationService.instance.showSuccess('Participação confirmada! Você receberá um lembrete no horário do evento.');
     } catch (e) {
       NotificationService.instance.showError('Não foi possível confirmar sua participação: $e');
     }

@@ -70,6 +70,22 @@ class _RateEventSheetState extends State<RateEventSheet> {
         'is_anonymous': _anonymous,
       });
 
+      try {
+        await supabase.from('notifications').insert({
+          'user_id': widget.event.companyId,
+          'tipo': 'new_review',
+          'titulo': 'Nova avaliação em "${widget.event.titulo}"',
+          'mensagem': _commentController.text.trim().isNotEmpty
+              ? 'Comentário: ${_commentController.text.trim()}'
+              : 'Nota: ${_rating} estrela(s)',
+          'related_event_id': widget.event.id,
+          'related_company_id': widget.event.companyId,
+          'is_read': false,
+          'sent_at': DateTime.now().toIso8601String(),
+          'created_at': DateTime.now().toIso8601String(),
+        });
+      } catch (_) {}
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Avaliação enviada com sucesso')), 

@@ -17,6 +17,7 @@ import '../../screens/company/company_details_screen.dart';
 import '../../screens/company/company_event_details_screen.dart';
 import '../../providers/events_provider.dart';
 import '../../models/event_model.dart';
+import '../../screens/notifications/notifications_screen.dart';
 
 /// Classe responsável por gerenciar as rotas da aplicação usando GoRouter
 class AppRouter {
@@ -131,6 +132,12 @@ class AppRouter {
         path: '/favorites',
         name: 'favorites',
         builder: (context, state) => const FavoritesScreen(),
+      ),
+      // Notificações
+      GoRoute(
+        path: '/notifications',
+        name: 'notifications',
+        builder: (context, state) => const NotificationsScreen(),
       ),
       // Detalhes de empresa (para usuários)
       GoRoute(

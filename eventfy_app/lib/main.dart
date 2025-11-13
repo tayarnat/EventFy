@@ -7,6 +7,7 @@ import 'providers/auth_provider.dart';
 import 'providers/preferences_provider.dart';
 import 'providers/events_provider.dart';
 import 'providers/favorites_provider.dart';
+import 'providers/notifications_provider.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/register_screen.dart';
 import 'screens/home/home_screen.dart';
@@ -59,6 +60,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => PreferencesProvider()),
         ChangeNotifierProvider(create: (_) => EventsProvider()),
         ChangeNotifierProvider(create: (_) => FavoritesProvider()),
+        ChangeNotifierProvider(create: (_) => NotificationsProvider()),
       ],
       child: Builder(
         builder: (context) {

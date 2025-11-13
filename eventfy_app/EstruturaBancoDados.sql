@@ -251,7 +251,7 @@ CREATE TABLE user_interactions (
 -- ============================================
 CREATE TABLE notifications (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users_base(id) ON DELETE CASCADE,
   titulo VARCHAR(150) NOT NULL,
   mensagem TEXT NOT NULL,
   tipo VARCHAR(50) NOT NULL, -- 'event_reminder', 'new_event', 'recommendation', 'company_update'
@@ -577,6 +577,10 @@ FOR SELECT USING (auth.uid() = user_id);
 DROP POLICY IF EXISTS "Users can update own notifications read flag" ON notifications;
 CREATE POLICY "Users can update own notifications read flag" ON notifications
 FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Anyone authenticated can insert notifications" ON notifications
+FOR INSERT TO authenticated
+WITH CHECK (true);
 
 -- ============================================
 -- VIEWS ÚTEIS

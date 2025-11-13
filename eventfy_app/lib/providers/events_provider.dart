@@ -549,6 +549,27 @@ class EventsProvider with ChangeNotifier {
           .single();
 
       if (res != null) {
+        try {
+          final attendees = await _supabase
+              .from('event_attendances')
+              .select('user_id')
+              .eq('event_id', eventId);
+          if (attendees is List && attendees.isNotEmpty) {
+            final notifRows = attendees
+                .map((a) => {
+                      'user_id': a['user_id']?.toString(),
+                      'tipo': 'event_cancelled',
+                      'titulo': 'Evento cancelado',
+                      'mensagem': 'Um evento que você acompanhava foi cancelado.',
+                      'related_event_id': eventId,
+                      'is_read': false,
+                      'sent_at': DateTime.now().toIso8601String(),
+                      'created_at': DateTime.now().toIso8601String(),
+                    })
+                .toList();
+            await _supabase.from('notifications').insert(notifRows);
+          }
+        } catch (_) {}
         await loadEvents();
         return true;
       }

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/events_provider.dart';
 import '../../providers/preferences_provider.dart';
+import '../../providers/notifications_provider.dart';
 import '../../widgets/event_card.dart';
 import '../../models/event_model.dart';
 import '../map/map_screen.dart';
@@ -28,23 +29,46 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: _screens[_selectedIndex],
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: (index) => setState(() => _selectedIndex = index),
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home),
-            label: 'Início',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.search),
-            label: 'Buscar',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person),
-            label: 'Perfil',
-          ),
-        ],
+      bottomNavigationBar: Consumer<NotificationsProvider>(
+        builder: (context, notifProvider, _) {
+          final hasUnread = notifProvider.unreadCount > 0;
+          return BottomNavigationBar(
+            currentIndex: _selectedIndex,
+            onTap: (index) => setState(() => _selectedIndex = index),
+            items: [
+              const BottomNavigationBarItem(
+                icon: Icon(Icons.home),
+                label: 'Início',
+              ),
+              const BottomNavigationBarItem(
+                icon: Icon(Icons.search),
+                label: 'Buscar',
+              ),
+              BottomNavigationBarItem(
+                icon: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    const Icon(Icons.person),
+                    if (hasUnread)
+                      Positioned(
+                        right: -2,
+                        top: -2,
+                        child: Container(
+                          width: 10,
+                          height: 10,
+                          decoration: BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                label: 'Perfil',
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -68,6 +92,7 @@ class _HomeTabState extends State<HomeTab> with SingleTickerProviderStateMixin {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final eventsProvider = Provider.of<EventsProvider>(context, listen: false);
       final preferencesProvider = Provider.of<PreferencesProvider>(context, listen: false);
+      final notificationsProvider = Provider.of<NotificationsProvider>(context, listen: false);
       
       if (eventsProvider.events.isEmpty && !eventsProvider.isLoadingEvents) {
         eventsProvider.initialize();
@@ -76,6 +101,9 @@ class _HomeTabState extends State<HomeTab> with SingleTickerProviderStateMixin {
       if (preferencesProvider.categories.isEmpty) {
         preferencesProvider.loadCategories();
       }
+
+      // Inicializar notificações (carregar e assinar em tempo real)
+      notificationsProvider.initialize();
 
       // Verificar notificações de avaliação pós-evento e abrir a folha de avaliação se houver
       RateEventNotificationsService.checkAndPrompt(context);
@@ -242,12 +270,32 @@ class ProfileTab extends StatelessWidget {
                   },
                 ),
                 
-                ListTile(
-                  leading: const Icon(Icons.notifications),
-                  title: const Text('Notificações'),
-                  trailing: const Icon(Icons.arrow_forward_ios),
-                  onTap: () {
-                    // TODO: Implementar configurações de notificação
+                Consumer<NotificationsProvider>(
+                  builder: (context, notifProvider, _) {
+                    final unread = notifProvider.unreadCount;
+                    return ListTile(
+                      leading: const Icon(Icons.notifications),
+                      title: const Text('Notificações'),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (unread > 0)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.deepPurple,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text('$unread', style: const TextStyle(color: Colors.white, fontSize: 12)),
+                            ),
+                          const SizedBox(width: 8),
+                          const Icon(Icons.arrow_forward_ios),
+                        ],
+                      ),
+                      onTap: () {
+                        context.pushNamed('notifications');
+                      },
+                    );
                   },
                 ),
                 
