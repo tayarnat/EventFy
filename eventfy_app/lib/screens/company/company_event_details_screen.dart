@@ -6,6 +6,7 @@ import '../../providers/auth_provider.dart';
 import '../../widgets/common/custom_button.dart';
 import '../map/map_screen.dart';
 import 'create_event_screen.dart';
+import '../../core/config/supabase_config.dart';
 
 class CompanyEventDetailsScreen extends StatefulWidget {
   final EventModel event;
@@ -22,6 +23,7 @@ class _CompanyEventDetailsScreenState extends State<CompanyEventDetailsScreen> {
   void initState() {
     super.initState();
     _event = widget.event;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadAttendanceCounts());
   }
 
   Future<void> _refreshEvent() async {
@@ -33,6 +35,32 @@ class _CompanyEventDetailsScreenState extends State<CompanyEventDetailsScreen> {
     setState(() {
       _event = updated;
     });
+    await _loadAttendanceCounts();
+  }
+
+  Future<void> _loadAttendanceCounts() async {
+    try {
+      final res = await supabase
+          .from('event_attendances')
+          .select('status')
+          .eq('event_id', _event.id);
+      int interested = 0;
+      int confirmed = 0;
+      int attended = 0;
+      for (final row in (res as List)) {
+        final s = (row['status'] as String?) ?? '';
+        if (s == 'interessado') interested++;
+        if (s == 'confirmado') confirmed++;
+        if (s == 'compareceu') attended++;
+      }
+      setState(() {
+        _event = _event.copyWith(
+          totalInterested: interested,
+          totalConfirmed: confirmed,
+          totalAttended: attended,
+        );
+      });
+    } catch (_) {}
   }
 
   String _formatDateTime(DateTime dt) {

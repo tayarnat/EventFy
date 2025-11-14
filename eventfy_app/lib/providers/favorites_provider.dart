@@ -72,6 +72,21 @@ class FavoritesProvider with ChangeNotifier {
             .eq('event_id', event.id);
         _favoriteEventIds.remove(event.id);
         _eventFavCache[event.id] = false;
+        try {
+          final attend = await supabase
+              .from('event_attendances')
+              .select('status')
+              .eq('user_id', userId)
+              .eq('event_id', event.id)
+              .maybeSingle();
+          if (attend != null && attend['status'] == 'interessado') {
+            await supabase
+                .from('event_attendances')
+                .delete()
+                .eq('user_id', userId)
+                .eq('event_id', event.id);
+          }
+        } catch (_) {}
       } else {
         await supabase.from('user_favorite_events').insert({
           'user_id': userId,
@@ -80,6 +95,23 @@ class FavoritesProvider with ChangeNotifier {
         });
         _favoriteEventIds.add(event.id);
         _eventFavCache[event.id] = true;
+        try {
+          final attend = await supabase
+              .from('event_attendances')
+              .select('status')
+              .eq('user_id', userId)
+              .eq('event_id', event.id)
+              .maybeSingle();
+          if (attend == null) {
+            await supabase.from('event_attendances').upsert({
+              'user_id': userId,
+              'event_id': event.id,
+              'status': 'interessado',
+              'checked_in_at': null,
+              'updated_at': DateTime.now().toIso8601String(),
+            });
+          }
+        } catch (_) {}
       }
       notifyListeners();
     } catch (e) {

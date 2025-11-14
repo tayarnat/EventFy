@@ -56,7 +56,7 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
             events!inner(*)
           ''')
           .eq('user_id', userId)
-          .or('status.eq.compareceu,status.eq.confirmado')
+          .or('status.eq.compareceu,status.eq.confirmado,status.eq.nao_compareceu')
           .order('updated_at', ascending: false);
 
       final List<Map<String, dynamic>> parsed = [];
@@ -214,7 +214,11 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 decoration: BoxDecoration(
-                  color: status == 'compareceu' ? Colors.green.shade50 : Colors.orange.shade50,
+                  color: status == 'compareceu'
+                      ? Colors.green.shade50
+                      : status == 'nao_compareceu'
+                          ? Colors.red.shade50
+                          : Colors.orange.shade50,
                   borderRadius: const BorderRadius.only(
                     bottomLeft: Radius.circular(8),
                     bottomRight: Radius.circular(8),
@@ -226,17 +230,34 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
                     Row(
                       children: [
                         Icon(
-                          status == 'compareceu' ? Icons.check_circle : Icons.schedule,
+                          status == 'compareceu'
+                              ? Icons.check_circle
+                              : status == 'nao_compareceu'
+                                  ? Icons.cancel
+                                  : Icons.schedule,
                           size: 16,
-                          color: status == 'compareceu' ? Colors.green : Colors.orange,
-                        ),                        Flexible(
+                          color: status == 'compareceu'
+                              ? Colors.green
+                              : status == 'nao_compareceu'
+                                  ? Colors.red
+                                  : Colors.orange,
+                        ),
+                        Flexible(
                           child: Text(
-                            status == 'compareceu' ? 'Presença confirmada' : 'Vai participar',
+                            status == 'compareceu'
+                                ? 'Presença confirmada'
+                                : status == 'nao_compareceu'
+                                    ? 'Não compareceu'
+                                    : 'Vai participar',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               fontSize: 12,
-                              color: status == 'compareceu' ? Colors.green.shade700 : Colors.orange.shade700,
+                              color: status == 'compareceu'
+                                  ? Colors.green.shade700
+                                  : status == 'nao_compareceu'
+                                      ? Colors.red.shade700
+                                      : Colors.orange.shade700,
                               fontWeight: FontWeight.w500,
                             ),
                           ),

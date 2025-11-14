@@ -99,18 +99,40 @@ class EventDetailsScreen extends StatelessWidget {
     if (auth.currentUser == null) return;
 
     try {
+      final choice = await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) {
+          return AlertDialog(
+            title: const Text('Registrar presença'),
+            content: const Text('Você foi ao evento?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop('nao_compareceu'),
+                child: const Text('Não fui'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.of(ctx).pop('compareceu'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.deepPurple,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Fui'),
+              ),
+            ],
+          );
+        },
+      );
+      if (choice == null) return;
       final payload = {
         'user_id': auth.currentUser!.id,
         'event_id': event.id,
-        'status': 'compareceu',
-        'checked_in_at': DateTime.now().toIso8601String(),
+        'status': choice,
+        'checked_in_at': choice == 'compareceu' ? DateTime.now().toIso8601String() : null,
         'updated_at': DateTime.now().toIso8601String(),
       };
-
-      // upsert para evitar duplicata pela PK (user_id, event_id)
       await supabase.from('event_attendances').upsert(payload);
-
-      NotificationService.instance.showSuccess('Presença registrada com sucesso!');
+      NotificationService.instance.showSuccess('Presença registrada');
     } catch (e) {
       NotificationService.instance.showError('Não foi possível registrar sua presença: $e');
     }
@@ -566,7 +588,7 @@ class EventDetailsScreen extends StatelessWidget {
             child: SafeArea(
               child: Row(
                 children: [
-                  Expanded(
+                  Expanded(flex: 1,
                     child: CustomButton(
                       onPressed: () {
                         // Navegar para o mapa com a localização do evento mantendo a barra inferior
@@ -596,7 +618,7 @@ class EventDetailsScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 16),
-                  Expanded(
+                  Expanded(flex: 2,
                     child: event.status == 'finalizado'
                         ? FutureBuilder<String?>(
                             future: _getMyAttendanceStatus(context),
@@ -608,7 +630,6 @@ class EventDetailsScreen extends StatelessWidget {
                                     Expanded(
                                       child: CustomButton(
                                         onPressed: () async {
-                                          // Abrir RateEventSheet (se usuário ainda não avaliou)
                                           final auth = Provider.of<AuthProvider>(context, listen: false);
                                           final userId = auth.currentUser?.id;
                                           if (userId == null) {
@@ -631,8 +652,6 @@ class EventDetailsScreen extends StatelessWidget {
                                               return;
                                             }
                                           } catch (_) {}
-
-                                          // ignore: use_build_context_synchronously
                                           showModalBottomSheet(
                                             context: context,
                                             isScrollControlled: true,
@@ -682,7 +701,46 @@ class EventDetailsScreen extends StatelessWidget {
                                   ],
                                 );
                               }
-                              // Se não compareceu, mostrar apenas "Ver avaliações"
+                              if (myStatus == 'confirmado') {
+                                return Row(
+                                  children: [
+                                    Expanded(
+                                      child: CustomButton(
+                                        onPressed: () async {
+                                          await _registerAttendance(context);
+                                        },
+                                        color: Theme.of(context).primaryColor,
+                                        child: const Text('Registrar Presença', style: TextStyle(color: Colors.white)),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: CustomButton(
+                                        onPressed: () {
+                                          showModalBottomSheet(
+                                            context: context,
+                                            isScrollControlled: true,
+                                            backgroundColor: Colors.transparent,
+                                            builder: (context) => DraggableScrollableSheet(
+                                              initialChildSize: 0.7,
+                                              minChildSize: 0.4,
+                                              maxChildSize: 0.95,
+                                              builder: (context, scrollController) {
+                                                return SingleChildScrollView(
+                                                  controller: scrollController,
+                                                  child: EventReviewsSheet(event: event),
+                                                );
+                                              },
+                                            ),
+                                          );
+                                        },
+                                        color: Theme.of(context).primaryColor,
+                                        child: const Text('Ver avaliações', style: TextStyle(color: Colors.white)),
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              }
                               return CustomButton(
                                 onPressed: () {
                                   showModalBottomSheet(
@@ -707,7 +765,7 @@ class EventDetailsScreen extends StatelessWidget {
                               );
                             },
                           )
-                        : FutureBuilder<String?>(
+                  : FutureBuilder<String?>(
                             future: _getMyAttendanceStatus(context),
                             builder: (context, snapshot) {
                               final myStatus = snapshot.data;
