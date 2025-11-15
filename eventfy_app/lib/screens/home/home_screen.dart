@@ -120,7 +120,7 @@ class _HomeTabState extends State<HomeTab> with SingleTickerProviderStateMixin {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('EventFy'),
+        title: Image.asset('assets/images/eventfy_logo.png', height: 120),
         centerTitle: true,
         elevation: 0,
         bottom: TabBar(

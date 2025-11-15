@@ -68,19 +68,14 @@ class _LoginScreenState extends State<LoginScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 // Logo/Título
-                Icon(
-                  Icons.map,
-                  size: 80,
-                  color: Theme.of(context).primaryColor,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'EventFy',
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
+                Center(
+                  child: Image.asset(
+                    'assets/images/eventfy_logo.png',
+                    height: 200,
+                    width: 200,
                   ),
-                  textAlign: TextAlign.center,
                 ),
+                const SizedBox(height: 32),
                 const SizedBox(height: 8),
                 Text(
                   'Descubra eventos incríveis próximos de você',

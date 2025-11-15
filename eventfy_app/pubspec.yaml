@@ -49,6 +49,9 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/images/eventfy_logo.png
 
 # COMENTÁRIO: Depois de ter o app básico funcionando, adicionar gradualmente:
 # - image_picker: ^1.1.2 (quando implementar upload)
