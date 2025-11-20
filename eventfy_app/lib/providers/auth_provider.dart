@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:geolocator/geolocator.dart';
 import '../models/user_model.dart';
 import '../models/company_model.dart';
 import '../core/config/supabase_config.dart';
@@ -57,14 +58,28 @@ class AuthProvider extends ChangeNotifier implements Listenable {
       _userType = userBaseResponse['user_type'];
       
       if (_userType == 'company') {
-        // Carregar perfil da empresa
         final response = await supabase
             .from('companies')
             .select()
             .eq('id', userId)
             .single();
-        
-        // Mapear os campos do banco para o modelo da empresa (snake_case para compatibilidade com CompanyModel.fromJson)
+        Map<String, dynamic>? location = response['location'] as Map<String, dynamic>?;
+        double? lat;
+        double? lng;
+        if (location != null && location['coordinates'] is List) {
+          final coords = location['coordinates'] as List;
+          if (coords.length >= 2) {
+            lng = (coords[0] as num?)?.toDouble();
+            lat = (coords[1] as num?)?.toDouble();
+          }
+        } else if (response['location'] is String) {
+          final s = response['location'] as String;
+          final m = RegExp(r'POINT\(([-\d\.]+)\s+([-\d\.]+)\)').firstMatch(s);
+          if (m != null) {
+            lng = double.tryParse(m.group(1)!);
+            lat = double.tryParse(m.group(2)!);
+          }
+        }
         final mappedResponse = {
           'id': response['id'],
           'email': supabase.auth.currentUser!.email ?? '',
@@ -73,8 +88,8 @@ class AuthProvider extends ChangeNotifier implements Listenable {
           'razao_social': response['razao_social'],
           'telefone': response['telefone'],
           'endereco': response['endereco'],
-          'latitude': null, // Será preenchido se location estiver disponível
-          'longitude': null, // Será preenchido se location estiver disponível
+          'latitude': lat,
+          'longitude': lng,
           'logo_url': response['logo_url'],
           'website': response['website'],
           'instagram': response['instagram'],
@@ -247,6 +262,9 @@ class AuthProvider extends ChangeNotifier implements Listenable {
 
       if (response.user != null) {
         await _loadUserProfile();
+        if (isCompany) {
+          await _captureAndSaveCompanyLocationSilently();
+        }
         return true;
       } else {
         _setError('Erro no login: Usuário não encontrado');
@@ -258,6 +276,51 @@ class AuthProvider extends ChangeNotifier implements Listenable {
     } finally {
       _setLoading(false);
     }
+  }
+
+  Future<void> _captureAndSaveCompanyLocationSilently() async {
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        return;
+      }
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          return;
+        }
+      }
+      if (permission == LocationPermission.deniedForever) {
+        return;
+      }
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 10),
+      );
+      final companyId = supabase.auth.currentUser?.id;
+      if (companyId == null) {
+        return;
+      }
+      await supabase
+          .from('companies')
+          .update({
+            'location': {
+              'type': 'Point',
+              'coordinates': [position.longitude, position.latitude],
+            },
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', companyId);
+      if (_currentCompany != null) {
+        _currentCompany = _currentCompany!.copyWith(
+          latitude: position.latitude,
+          longitude: position.longitude,
+          updatedAt: DateTime.now(),
+        );
+        notifyListeners();
+      }
+    } catch (_) {}
   }
 
   // Método para verificar se é o primeiro login

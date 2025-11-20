@@ -194,11 +194,14 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   }
   
   Future<void> _selectLocation() async {
-    // Navegar para tela de seleção de localização no mapa
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final eventsProvider = Provider.of<EventsProvider>(context, listen: false);
+    final double? initLat = _selectedLatitude ?? authProvider.currentCompany?.latitude ?? eventsProvider.currentPosition?.latitude;
+    final double? initLng = _selectedLongitude ?? authProvider.currentCompany?.longitude ?? eventsProvider.currentPosition?.longitude;
     final result = await Navigator.push<Map<String, dynamic>>(
       context,
       MaterialPageRoute(
-        builder: (context) => const LocationPickerScreen(),
+        builder: (context) => LocationPickerScreen(initialLat: initLat, initialLng: initLng),
       ),
     );
     
@@ -794,7 +797,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
 // Tela para seleção de localização no mapa
 class LocationPickerScreen extends StatefulWidget {
-  const LocationPickerScreen({super.key});
+  final double? initialLat;
+  final double? initialLng;
+  const LocationPickerScreen({super.key, this.initialLat, this.initialLng});
 
   @override
   State<LocationPickerScreen> createState() => _LocationPickerScreenState();
@@ -807,9 +812,18 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   bool _isLoadingAddress = false;
   
   static const CameraPosition _defaultPosition = CameraPosition(
-    target: LatLng(-23.5505, -46.6333), // São Paulo
+    target: LatLng(-23.5505, -46.6333),
     zoom: 12.0,
   );
+  CameraPosition get _initialCameraPosition {
+    if (widget.initialLat != null && widget.initialLng != null) {
+      return CameraPosition(
+        target: LatLng(widget.initialLat!, widget.initialLng!),
+        zoom: 14.0,
+      );
+    }
+    return _defaultPosition;
+  }
   
   Future<void> _getAddressFromCoordinates(LatLng location) async {
     setState(() {
@@ -877,7 +891,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
             onMapCreated: (controller) {
               _mapController = controller;
             },
-            initialCameraPosition: _defaultPosition,
+            initialCameraPosition: _initialCameraPosition,
             onTap: (LatLng location) {
               setState(() {
                 _selectedLocation = location;
