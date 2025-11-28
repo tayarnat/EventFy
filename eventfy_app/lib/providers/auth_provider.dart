@@ -262,9 +262,6 @@ class AuthProvider extends ChangeNotifier implements Listenable {
 
       if (response.user != null) {
         await _loadUserProfile();
-        if (isCompany) {
-          await _captureAndSaveCompanyLocationSilently();
-        }
         return true;
       } else {
         _setError('Erro no login: Usuário não encontrado');

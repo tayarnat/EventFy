@@ -16,7 +16,10 @@ import '../../widgets/common/error_notification.dart';
 
 class CreateEventScreen extends StatefulWidget {
   final EventModel? initialEvent;
-  const CreateEventScreen({super.key, this.initialEvent});
+  final Future<Map<String, double>?> Function(String address)? geocodeFn;
+  final bool showMapPreview;
+  final bool skipInitialLoad;
+  const CreateEventScreen({super.key, this.initialEvent, this.geocodeFn, this.showMapPreview = true, this.skipInitialLoad = false});
 
   @override
   State<CreateEventScreen> createState() => _CreateEventScreenState();
@@ -45,6 +48,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   
   double? _selectedLatitude;
   double? _selectedLongitude;
+  bool _addressSearching = false;
+  String? _addressSearchError;
+  String? _resolvedAddress;
   
   File? _selectedImage;
   final ImagePicker _imagePicker = ImagePicker();
@@ -59,9 +65,11 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadCategories();
-    });
+    if (!widget.skipInitialLoad) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _loadCategories();
+      });
+    }
     // Prefill basic fields if editing; categories will be handled after loading
     if (_isEditing) {
       final e = widget.initialEvent!;
@@ -87,6 +95,70 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       _startTime = TimeOfDay.fromDateTime(e.dataInicio);
       _endDate = DateTime(e.dataFim.year, e.dataFim.month, e.dataFim.day);
       _endTime = TimeOfDay.fromDateTime(e.dataFim);
+    }
+  }
+
+  Future<void> _geocodeAddress() async {
+    final raw = _addressController.text.trim();
+    if (raw.isEmpty) {
+      ErrorNotification.show(context, 'Digite um endereço para buscar');
+      return;
+    }
+    setState(() {
+      _addressSearching = true;
+      _addressSearchError = null;
+      _resolvedAddress = null;
+    });
+    try {
+      Map<String, double>? coords;
+      if (widget.geocodeFn != null) {
+        coords = await widget.geocodeFn!(raw);
+      } else {
+        final results = await locationFromAddress(raw);
+        if (results.isNotEmpty) {
+          coords = {
+            'lat': results.first.latitude,
+            'lng': results.first.longitude,
+          };
+        }
+      }
+      if (coords == null) {
+        setState(() {
+          _addressSearchError = 'Endereço não encontrado';
+        });
+        return;
+      }
+      setState(() {
+        _selectedLatitude = coords!['lat'];
+        _selectedLongitude = coords['lng'];
+      });
+      try {
+        final placemarks = await placemarkFromCoordinates(_selectedLatitude!, _selectedLongitude!);
+        if (placemarks.isNotEmpty) {
+          final p = placemarks.first;
+          _resolvedAddress = [
+            p.street,
+            p.subLocality,
+            p.locality,
+            p.administrativeArea,
+            p.country,
+          ].where((e) => e != null && e.isNotEmpty).join(', ');
+          if (_resolvedAddress != null && _resolvedAddress!.isNotEmpty) {
+            _addressController.text = _resolvedAddress!;
+          }
+        }
+      } catch (_) {}
+      ErrorNotification.showSuccess(context, 'Endereço localizado');
+    } catch (e) {
+      setState(() {
+        _addressSearchError = 'Falha na geocodificação: $e';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _addressSearching = false;
+        });
+      }
     }
   }
   
@@ -467,6 +539,18 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
               CustomTextField(
                 controller: _addressController,
                 label: 'Endereço',
+                hint: 'Digite o endereço e toque em buscar',
+                suffixIcon: IconButton(
+                  tooltip: 'Buscar endereço',
+                  onPressed: _addressSearching ? null : _geocodeAddress,
+                  icon: _addressSearching
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.search),
+                ),
                 validator: (value) {
                   if (value == null || value.trim().isEmpty) {
                     return 'Por favor, insira o endereço';
@@ -474,6 +558,14 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                   return null;
                 },
               ),
+              if (_addressSearchError != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    _addressSearchError!,
+                    style: const TextStyle(color: Colors.red, fontSize: 12),
+                  ),
+                ),
               const SizedBox(height: 16),
               
               // Botão de localização
@@ -489,6 +581,39 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                   ),
                 ),
               ),
+              const SizedBox(height: 12),
+              if (widget.showMapPreview && _selectedLatitude != null && _selectedLongitude != null)
+                SizedBox(
+                  height: 200,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: GoogleMap(
+                      initialCameraPosition: CameraPosition(
+                        target: LatLng(_selectedLatitude!, _selectedLongitude!),
+                        zoom: 15,
+                      ),
+                      markers: {
+                        Marker(
+                          markerId: const MarkerId('selected_preview'),
+                          position: LatLng(_selectedLatitude!, _selectedLongitude!),
+                          infoWindow: const InfoWindow(title: 'Endereço selecionado'),
+                        ),
+                      },
+                      myLocationButtonEnabled: false,
+                      zoomControlsEnabled: false,
+                      compassEnabled: false,
+                      mapToolbarEnabled: false,
+                    ),
+                  ),
+                ),
+              if (_selectedLatitude != null && _selectedLongitude != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    'Lat: ${_selectedLatitude!.toStringAsFixed(6)} • Lng: ${_selectedLongitude!.toStringAsFixed(6)}',
+                    style: TextStyle(color: Colors.grey[700], fontSize: 12),
+                  ),
+                ),
               const SizedBox(height: 24),
               
               // Data e hora de início
@@ -810,6 +935,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   LatLng? _selectedLocation;
   String? _selectedAddress;
   bool _isLoadingAddress = false;
+  bool _movingToUser = false;
   
   static const CameraPosition _defaultPosition = CameraPosition(
     target: LatLng(-23.5505, -46.6333),
@@ -823,6 +949,59 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
       );
     }
     return _defaultPosition;
+  }
+
+  Future<void> _moveToUserLocation() async {
+    try {
+      setState(() {
+        _movingToUser = true;
+      });
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        setState(() {
+          _movingToUser = false;
+        });
+        return;
+      }
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          setState(() {
+            _movingToUser = false;
+          });
+          return;
+        }
+      }
+      if (permission == LocationPermission.deniedForever) {
+        setState(() {
+          _movingToUser = false;
+        });
+        return;
+      }
+
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 10),
+      );
+      if (_mapController != null) {
+        await _mapController!.animateCamera(
+          CameraUpdate.newCameraPosition(
+            CameraPosition(
+              target: LatLng(pos.latitude, pos.longitude),
+              zoom: 15.0,
+            ),
+          ),
+        );
+      }
+    } catch (_) {
+    } finally {
+      if (mounted) {
+        setState(() {
+          _movingToUser = false;
+        });
+      }
+    }
   }
   
   Future<void> _getAddressFromCoordinates(LatLng location) async {
@@ -890,6 +1069,9 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
           GoogleMap(
             onMapCreated: (controller) {
               _mapController = controller;
+              if (widget.initialLat == null || widget.initialLng == null) {
+                _moveToUserLocation();
+              }
             },
             initialCameraPosition: _initialCameraPosition,
             onTap: (LatLng location) {
@@ -909,6 +1091,24 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                     ),
                   }
                 : {},
+          ),
+          Positioned(
+            bottom: 16,
+            right: 16,
+            child: FloatingActionButton(
+              heroTag: 'company_picker_my_location',
+              mini: true,
+              backgroundColor: Colors.white,
+              foregroundColor: Colors.blue,
+              onPressed: _movingToUser ? null : _moveToUserLocation,
+              child: _movingToUser
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.my_location),
+            ),
           ),
           Positioned(
             top: 16,
