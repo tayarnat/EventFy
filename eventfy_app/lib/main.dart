@@ -87,12 +87,44 @@ class MyApp extends StatelessWidget {
             routerConfig: appRouter.router,
             builder: (context, child) {
               NotificationService().setContext(context);
-              return child ?? const SizedBox();
+              return _AppBootstrap(child: child ?? const SizedBox());
             },
           );
         },
       ),
     );
+  }
+}
+
+class _AppBootstrap extends StatefulWidget {
+  final Widget child;
+  const _AppBootstrap({super.key, required this.child});
+  @override
+  State<_AppBootstrap> createState() => _AppBootstrapState();
+}
+
+class _AppBootstrapState extends State<_AppBootstrap> {
+  String? _lastUserId;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final auth = Provider.of<AuthProvider>(context);
+    final notifications = Provider.of<NotificationsProvider>(context, listen: false);
+    final uid = auth.currentUser?.id ?? auth.currentCompany?.id;
+    if (uid != null && uid != _lastUserId) {
+      _lastUserId = uid;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        notifications.initialize();
+      });
+    }
+    if (uid == null && _lastUserId != null) {
+      _lastUserId = null;
+      notifications.reset();
+    }
+  }
+  @override
+  Widget build(BuildContext context) {
+    return widget.child;
   }
 }
 

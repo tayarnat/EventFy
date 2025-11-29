@@ -45,7 +45,7 @@ class NotificationsProvider with ChangeNotifier {
   List<NotificationModel> get notifications => _notifications;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
-  int get unreadCount => _notifications.where((n) => !n.isRead).length;
+  int get unreadCount => _notifications.where((n) => !n.isRead && n.isActive).length;
 
   Future<void> initialize() async {
     _log('initialize()');
@@ -76,11 +76,12 @@ class NotificationsProvider with ChangeNotifier {
 
       _log('Query -> from("notifications").select(explicit cols).eq("user_id", "$userId").order("sent_at" DESC).order("created_at" DESC)');
       // Seleciona colunas explicitamente para evitar problemas de mapeamento
-      const selectedCols = 'id, user_id, tipo, titulo, mensagem, related_event_id, is_read, sent_at, created_at';
+      const selectedCols = 'id, user_id, tipo, titulo, mensagem, related_event_id, is_read, is_active, sent_at, created_at';
       var res = await _supabase
           .from('notifications')
           .select(selectedCols)
           .eq('user_id', userId)
+          .eq('is_active', true)
           .order('sent_at', ascending: false)
           .order('created_at', ascending: false);
 
@@ -148,6 +149,17 @@ class NotificationsProvider with ChangeNotifier {
     }
   }
 
+  void reset() {
+    _channel?.unsubscribe();
+    _channel = null;
+    _dueTimer?.cancel();
+    _dueTimer = null;
+    _notifications = [];
+    _isLoading = false;
+    _errorMessage = null;
+    notifyListeners();
+  }
+
   void _subscribeToRealtime() {
     final userId = _supabase.auth.currentUser?.id;
     if (userId == null) return;
@@ -164,27 +176,41 @@ class NotificationsProvider with ChangeNotifier {
           callback: (payload) {
             try {
               final newRecord = payload.newRecord;
-              _logData('Realtime payload newRecord', newRecord);
               if (newRecord == null) return;
-              if (newRecord['user_id'] != userId) return; // filtra por usuário
-              _log('Realtime accepted for user. user_id=${newRecord['user_id']}');
-
+              if (newRecord['user_id'] != userId) return;
               final notif = NotificationModel.fromJson(Map<String, dynamic>.from(newRecord));
-              _log('Realtime mapped notification id=${notif.id}');
-              _notifications.insert(0, notif);
-              notifyListeners();
-
-              _checkOneDue(notif);
-
-              // Mostrar aviso em tempo real
-              NotificationService.instance.showInfo(
-                notif.titulo.isNotEmpty ? notif.titulo : 'Nova notificação recebida',
-              );
-            } catch (e) {
-              if (kDebugMode) {
-                print('Erro ao processar payload de notificação: $e');
+              if (notif.isActive) {
+                _notifications.insert(0, notif);
+                notifyListeners();
+                _checkOneDue(notif);
               }
+            } catch (e) {
               _log('Erro ao processar payload de notificação: $e');
+            }
+          },
+        )
+        ..onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'notifications',
+          callback: (payload) {
+            try {
+              final newRecord = payload.newRecord;
+              if (newRecord == null) return;
+              if (newRecord['user_id'] != userId) return;
+              final notif = NotificationModel.fromJson(Map<String, dynamic>.from(newRecord));
+              if (notif.isActive) {
+                final idx = _notifications.indexWhere((n) => n.id == notif.id);
+                if (idx != -1) {
+                  _notifications[idx] = notif;
+                } else {
+                  _notifications.insert(0, notif);
+                }
+                notifyListeners();
+                _checkOneDue(notif);
+              }
+            } catch (e) {
+              _log('Erro ao processar update de notificação: $e');
             }
           },
         )
@@ -209,7 +235,8 @@ class NotificationsProvider with ChangeNotifier {
   void _checkDueNotifications() {
     final now = DateTime.now().toUtc();
     for (final n in _notifications) {
-      if (!n.isRead && n.sentAt.isBefore(now) && !_shownDueIds.contains(n.id)) {
+      final sameDay = n.sentAt.year == now.year && n.sentAt.month == now.month && n.sentAt.day == now.day;
+      if (n.isActive && !n.isRead && sameDay && n.sentAt.isBefore(now) && !_shownDueIds.contains(n.id)) {
         _shownDueIds.add(n.id);
         NotificationService.instance.showInfo(n.titulo.isNotEmpty ? n.titulo : 'Nova notificação');
       }
@@ -218,7 +245,8 @@ class NotificationsProvider with ChangeNotifier {
 
   void _checkOneDue(NotificationModel n) {
     final now = DateTime.now().toUtc();
-    if (!n.isRead && n.sentAt.isBefore(now) && !_shownDueIds.contains(n.id)) {
+    final sameDay = n.sentAt.year == now.year && n.sentAt.month == now.month && n.sentAt.day == now.day;
+    if (n.isActive && !n.isRead && sameDay && n.sentAt.isBefore(now) && !_shownDueIds.contains(n.id)) {
       _shownDueIds.add(n.id);
       NotificationService.instance.showInfo(n.titulo.isNotEmpty ? n.titulo : 'Nova notificação');
     }
@@ -250,6 +278,7 @@ class NotificationsProvider with ChangeNotifier {
             'mensagem': 'Seu evento começa em breve. Faça o check-in quando chegar.',
             'related_event_id': eventId,
             'is_read': false,
+            'is_active': false,
             'sent_at': dataInicio,
             'created_at': DateTime.now().toIso8601String(),
           });

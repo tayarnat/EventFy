@@ -92,8 +92,6 @@ class _HomeTabState extends State<HomeTab> with SingleTickerProviderStateMixin {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final eventsProvider = Provider.of<EventsProvider>(context, listen: false);
       final preferencesProvider = Provider.of<PreferencesProvider>(context, listen: false);
-      final notificationsProvider = Provider.of<NotificationsProvider>(context, listen: false);
-      
       if (eventsProvider.events.isEmpty && !eventsProvider.isLoadingEvents) {
         eventsProvider.initialize();
       }
@@ -101,9 +99,6 @@ class _HomeTabState extends State<HomeTab> with SingleTickerProviderStateMixin {
       if (preferencesProvider.categories.isEmpty) {
         preferencesProvider.loadCategories();
       }
-
-      // Inicializar notificações (carregar e assinar em tempo real)
-      notificationsProvider.initialize();
 
       // Verificar notificações de avaliação pós-evento e abrir a folha de avaliação se houver
       RateEventNotificationsService.checkAndPrompt(context);

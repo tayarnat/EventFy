@@ -10,6 +10,7 @@ class NotificationModel {
   final String? relatedEventId;
   final DateTime sentAt;
   final bool isRead;
+  final bool isActive;
   final Map<String, dynamic>? extraData;
 
   NotificationModel({
@@ -19,6 +20,7 @@ class NotificationModel {
     required this.mensagem,
     required this.sentAt,
     required this.isRead,
+    required this.isActive,
     this.userId,
     this.relatedEventId,
     this.extraData,
@@ -64,6 +66,9 @@ class NotificationModel {
       isRead: (json['is_read'] is bool)
           ? json['is_read'] as bool
           : json['is_read']?.toString().toLowerCase() == 'true',
+      isActive: (json['is_active'] is bool)
+          ? json['is_active'] as bool
+          : json['is_active']?.toString().toLowerCase() == 'true',
       extraData: json['extra_data'] is Map<String, dynamic>
           ? json['extra_data'] as Map<String, dynamic>
           : null,
@@ -79,6 +84,7 @@ class NotificationModel {
         'related_event_id': relatedEventId,
         'sent_at': sentAt.toIso8601String(),
         'is_read': isRead,
+        'is_active': isActive,
         'extra_data': extraData,
       };
 
@@ -91,6 +97,7 @@ class NotificationModel {
     String? relatedEventId,
     DateTime? sentAt,
     bool? isRead,
+    bool? isActive,
     Map<String, dynamic>? extraData,
   }) {
     return NotificationModel(
@@ -102,6 +109,7 @@ class NotificationModel {
       relatedEventId: relatedEventId ?? this.relatedEventId,
       sentAt: sentAt ?? this.sentAt,
       isRead: isRead ?? this.isRead,
+      isActive: isActive ?? this.isActive,
       extraData: extraData ?? this.extraData,
     );
   }
@@ -109,6 +117,6 @@ class NotificationModel {
   /// Representação amigável para debug
   @override
   String toString() {
-    return 'NotificationModel(id=$id, tipo=$tipo, titulo=$titulo, relatedEventId=$relatedEventId, sentAt=$sentAt, isRead=$isRead)';
+    return 'NotificationModel(id=$id, tipo=$tipo, titulo=$titulo, relatedEventId=$relatedEventId, sentAt=$sentAt, isRead=$isRead, isActive=$isActive)';
   }
 }

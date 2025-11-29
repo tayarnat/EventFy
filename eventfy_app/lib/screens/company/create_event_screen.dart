@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:provider/provider.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
@@ -27,6 +28,7 @@ class CreateEventScreen extends StatefulWidget {
 
 class _CreateEventScreenState extends State<CreateEventScreen> {
   final _formKey = GlobalKey<FormState>();
+  final ScrollController _scrollController = ScrollController();
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _addressController = TextEditingController();
@@ -230,39 +232,120 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   }
   
   Future<void> _selectDate(bool isStartDate) async {
-    final DateTime? picked = await showDatePicker(
+    final minDate = DateTime.now();
+    final maxDate = DateTime.now().add(const Duration(days: 365));
+    DateTime temp = isStartDate && _startDate != null ? _startDate! : (_endDate ?? DateTime.now());
+    await showModalBottomSheet(
       context: context,
-      initialDate: DateTime.now(),
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
+      isScrollControlled: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: SizedBox(
+            height: 300,
+            child: Column(
+              children: [
+                Expanded(
+                  child: CupertinoDatePicker(
+                    mode: CupertinoDatePickerMode.date,
+                    minimumDate: minDate,
+                    maximumDate: maxDate,
+                    initialDateTime: temp,
+                    onDateTimeChanged: (dt) {
+                      temp = dt;
+                    },
+                  ),
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('Cancelar'),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        setState(() {
+                          if (isStartDate) {
+                            _startDate = DateTime(temp.year, temp.month, temp.day);
+                          } else {
+                            _endDate = DateTime(temp.year, temp.month, temp.day);
+                          }
+                        });
+                        Navigator.pop(ctx);
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          _scrollController.jumpTo(_scrollController.offset);
+                        });
+                      },
+                      child: const Text('Confirmar'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
-    
-    if (picked != null) {
-      setState(() {
-        if (isStartDate) {
-          _startDate = picked;
-        } else {
-          _endDate = picked;
-        }
-      });
-    }
   }
   
   Future<void> _selectTime(bool isStartTime) async {
-    final TimeOfDay? picked = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.now(),
-    );
-    
-    if (picked != null) {
-      setState(() {
-        if (isStartTime) {
-          _startTime = picked;
-        } else {
-          _endTime = picked;
-        }
-      });
+    DateTime base = DateTime.now();
+    if (isStartTime && _startTime != null) {
+      base = DateTime(base.year, base.month, base.day, _startTime!.hour, _startTime!.minute);
+    } else if (!isStartTime && _endTime != null) {
+      base = DateTime(base.year, base.month, base.day, _endTime!.hour, _endTime!.minute);
     }
+    DateTime temp = base;
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: SizedBox(
+            height: 300,
+            child: Column(
+              children: [
+                Expanded(
+                  child: CupertinoDatePicker(
+                    mode: CupertinoDatePickerMode.time,
+                    initialDateTime: base,
+                    onDateTimeChanged: (dt) {
+                      temp = dt;
+                    },
+                  ),
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('Cancelar'),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        setState(() {
+                          final t = TimeOfDay(hour: temp.hour, minute: temp.minute);
+                          if (isStartTime) {
+                            _startTime = t;
+                          } else {
+                            _endTime = t;
+                          }
+                        });
+                        Navigator.pop(ctx);
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          _scrollController.jumpTo(_scrollController.offset);
+                        });
+                      },
+                      child: const Text('Confirmar'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
   
   Future<void> _selectLocation() async {
@@ -421,6 +504,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       body: Form(
         key: _formKey,
         child: SingleChildScrollView(
+          controller: _scrollController,
           padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,

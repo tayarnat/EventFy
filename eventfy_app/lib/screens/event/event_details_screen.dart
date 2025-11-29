@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/config/supabase_config.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/favorites_provider.dart';
+import '../../providers/notifications_provider.dart';
 import '../../services/notification_service.dart';
 import '../../models/event_model.dart';
 import '../../widgets/common/custom_button.dart';
@@ -13,10 +14,27 @@ import '../../widgets/event_reviews_sheet.dart';
 import '../../widgets/rate_event_sheet.dart';
 import '../map/map_screen.dart';
 
-class EventDetailsScreen extends StatelessWidget {
+class EventDetailsScreen extends StatefulWidget {
   final EventModel event;
 
   const EventDetailsScreen({Key? key, required this.event}) : super(key: key);
+  @override
+  State<EventDetailsScreen> createState() => _EventDetailsScreenState();
+}
+
+class _EventDetailsScreenState extends State<EventDetailsScreen> {
+  late Future<String?> _attendanceStatusFuture;
+  EventModel get event => widget.event;
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      _attendanceStatusFuture = _getMyAttendanceStatus(context);
+      _maybePromptAttendance(context);
+      Provider.of<FavoritesProvider>(context, listen: false).isEventFavorited(event.id);
+      setState(() {});
+    });
+  }
 
   // Exibe um prompt único perguntando se o usuário participou do evento (apenas para usuários, não empresas)
   Future<void> _maybePromptAttendance(BuildContext context) async {
@@ -101,10 +119,18 @@ class EventDetailsScreen extends StatelessWidget {
     try {
       final choice = await showDialog<String>(
         context: context,
-        barrierDismissible: false,
+        barrierDismissible: true,
         builder: (ctx) {
           return AlertDialog(
-            title: const Text('Registrar presença'),
+            title: Row(
+              children: [
+                const Expanded(child: Text('Registrar presença')),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.of(ctx).pop(),
+                ),
+              ],
+            ),
             content: const Text('Você foi ao evento?'),
             actions: [
               TextButton(
@@ -132,7 +158,25 @@ class EventDetailsScreen extends StatelessWidget {
         'updated_at': DateTime.now().toIso8601String(),
       };
       await supabase.from('event_attendances').upsert(payload);
+      if (choice == 'compareceu') {
+        try {
+          await supabase.from('notifications').insert({
+            'user_id': auth.currentUser!.id,
+            'tipo': 'attendance_confirmed',
+            'titulo': 'Presença confirmada',
+            'mensagem': 'Sua presença foi confirmada com sucesso.',
+            'related_event_id': event.id,
+            'is_read': false,
+            'is_active': true,
+            'sent_at': DateTime.now().toIso8601String(),
+            'created_at': DateTime.now().toIso8601String(),
+          });
+        } catch (_) {}
+      }
       NotificationService.instance.showSuccess('Presença registrada');
+      setState(() {
+        _attendanceStatusFuture = _getMyAttendanceStatus(context);
+      });
     } catch (e) {
       NotificationService.instance.showError('Não foi possível registrar sua presença: $e');
     }
@@ -168,17 +212,38 @@ class EventDetailsScreen extends StatelessWidget {
       try {
         await supabase.from('notifications').insert({
           'user_id': auth.currentUser!.id,
+          'tipo': 'participation_confirmed',
+          'titulo': 'Participação confirmada',
+          'mensagem': 'Sua participação foi confirmada com sucesso.',
+          'related_event_id': event.id,
+          'is_read': false,
+          'is_active': true,
+          'sent_at': DateTime.now().toIso8601String(),
+          'created_at': DateTime.now().toIso8601String(),
+        });
+      } catch (e) {
+        NotificationService.instance.showError('Erro ao criar notificação de participação: $e');
+      }
+
+      try {
+        await supabase.from('notifications').insert({
+          'user_id': auth.currentUser!.id,
           'tipo': 'event_start',
           'titulo': 'Lembrete: ${event.titulo}',
           'mensagem': 'Seu evento começa em breve. Faça o check-in quando chegar.',
           'related_event_id': event.id,
           'is_read': false,
+          'is_active': false,
           'sent_at': event.dataInicio.toIso8601String(),
           'created_at': DateTime.now().toIso8601String(),
         });
       } catch (_) {}
 
       NotificationService.instance.showSuccess('Participação confirmada! Você receberá um lembrete no horário do evento.');
+      NotificationService.instance.showInfo('Participação confirmada');
+      setState(() {
+        _attendanceStatusFuture = _getMyAttendanceStatus(context);
+      });
     } catch (e) {
       NotificationService.instance.showError('Não foi possível confirmar sua participação: $e');
     }
@@ -219,6 +284,9 @@ class EventDetailsScreen extends StatelessWidget {
           .eq('event_id', event.id);
 
       NotificationService.instance.showSuccess('Participação cancelada.');
+      setState(() {
+        _attendanceStatusFuture = _getMyAttendanceStatus(context);
+      });
     } catch (e) {
       NotificationService.instance.showError('Erro ao cancelar participação: $e');
     }
@@ -226,12 +294,6 @@ class EventDetailsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Dispara verificação pós-frame para evitar setState durante build
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _maybePromptAttendance(context);
-      // Pré-carrega estado de favorito no cache para refletir corretamente no UI
-      Provider.of<FavoritesProvider>(context, listen: false).isEventFavorited(event.id);
-    });
 
     return Scaffold(
       body: Column(
@@ -766,7 +828,7 @@ class EventDetailsScreen extends StatelessWidget {
                             },
                           )
                   : FutureBuilder<String?>(
-                            future: _getMyAttendanceStatus(context),
+                            future: _attendanceStatusFuture,
                             builder: (context, snapshot) {
                               final myStatus = snapshot.data;
                               final now = DateTime.now();
@@ -812,25 +874,24 @@ class EventDetailsScreen extends StatelessWidget {
                                 );
                               }
 
-                              if (isActiveWindow) {
-                                return CustomButton(
-                                  onPressed: () async {
-                                    await _registerAttendance(context);
-                                  },
-                                  color: Theme.of(context).primaryColor,
-                                  child: const Text('Registrar Presença', style: TextStyle(color: Colors.white)),
-                                );
-                              }
-
-                              // Fora da janela ativa
                               if (myStatus == 'confirmado') {
-                                return CustomButton(
-                                  onPressed: () async {
-                                    await _cancelParticipation(context);
-                                  },
-                                  color: Theme.of(context).primaryColor,
-                                  child: const Text('Cancelar participação', style: TextStyle(color: Colors.white)),
-                                );
+                                if (isActiveWindow) {
+                                  return CustomButton(
+                                    onPressed: () async {
+                                      await _registerAttendance(context);
+                                    },
+                                    color: Theme.of(context).primaryColor,
+                                    child: const Text('Registrar Presença', style: TextStyle(color: Colors.white)),
+                                  );
+                                } else {
+                                  return CustomButton(
+                                    onPressed: () async {
+                                      await _cancelParticipation(context);
+                                    },
+                                    color: Theme.of(context).primaryColor,
+                                    child: const Text('Cancelar participação', style: TextStyle(color: Colors.white)),
+                                  );
+                                }
                               }
 
                               return CustomButton(

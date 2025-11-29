@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'dart:async';
 import '../widgets/common/error_notification.dart';
 
 class NotificationService {
@@ -50,28 +52,49 @@ class NotificationService {
     }
     
     if (_context != null) {
-      ScaffoldMessenger.of(_context!).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Icon(
-                Icons.info_outline,
-                color: Colors.white,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  message,
-                  style: const TextStyle(color: Colors.white),
+      final messenger = ScaffoldMessenger.of(_context!);
+      messenger.clearMaterialBanners();
+      messenger.showMaterialBanner(
+        MaterialBanner(
+          content: InkWell(
+            onTap: () {
+              messenger.hideCurrentMaterialBanner();
+              GoRouter.of(_context!).pushNamed('notifications');
+            },
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.notifications_active,
+                  color: Colors.white,
                 ),
-              ),
-            ],
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    message,
+                    style: const TextStyle(color: Colors.white),
+                    maxLines: 3,
+                    softWrap: true,
+                  ),
+                ),
+              ],
+            ),
           ),
-          backgroundColor: Colors.blue,
-          duration: const Duration(seconds: 3),
-          behavior: SnackBarBehavior.floating,
+          actions: [
+            TextButton(
+              onPressed: () {
+                messenger.hideCurrentMaterialBanner();
+                GoRouter.of(_context!).pushNamed('notifications');
+              },
+              child: const Text('Ver', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+          backgroundColor: Colors.deepPurple,
+          contentTextStyle: const TextStyle(color: Colors.white),
         ),
       );
+      Timer(const Duration(seconds: 2), () {
+        messenger.hideCurrentMaterialBanner();
+      });
     }
   }
 
