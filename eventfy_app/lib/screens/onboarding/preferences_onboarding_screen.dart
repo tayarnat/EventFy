@@ -376,6 +376,7 @@ class _PreferencesOnboardingScreenState extends State<PreferencesOnboardingScree
                   Expanded(
                     flex: 1,
                     child: ReorderableListView.builder(
+                      buildDefaultDragHandles: false,
                       itemCount: _selectedCategories.length,
                       onReorder: _moveCategory,
                       itemBuilder: (context, index) {
@@ -401,9 +402,12 @@ class _PreferencesOnboardingScreenState extends State<PreferencesOnboardingScree
                               trailing: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Icon(
-                                    Icons.drag_handle,
-                                    color: Colors.grey[400],
+                                  ReorderableDragStartListener(
+                                    index: index,
+                                    child: Icon(
+                                      Icons.drag_handle,
+                                      color: Colors.grey[400],
+                                    ),
                                   ),
                                   IconButton(
                                     icon: const Icon(Icons.close, color: Colors.red),

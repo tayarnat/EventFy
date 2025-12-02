@@ -247,6 +247,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                 Expanded(
                   child: CupertinoDatePicker(
                     mode: CupertinoDatePickerMode.date,
+                    dateOrder: DatePickerDateOrder.dmy,
                     minimumDate: minDate,
                     maximumDate: maxDate,
                     initialDateTime: temp,
@@ -308,6 +309,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                 Expanded(
                   child: CupertinoDatePicker(
                     mode: CupertinoDatePickerMode.time,
+                    use24hFormat: true,
                     initialDateTime: base,
                     onDateTimeChanged: (dt) {
                       temp = dt;

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'core/config/supabase_config.dart';
 import 'core/routes/app_router.dart';
@@ -84,6 +85,16 @@ class MyApp extends StatelessWidget {
                 ),
               ),
             ),
+            locale: const Locale('pt', 'BR'),
+            supportedLocales: const [
+              Locale('pt', 'BR'),
+              Locale('en', 'US'),
+            ],
+            localizationsDelegates: const [
+              GlobalMaterialLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+            ],
             routerConfig: appRouter.router,
             builder: (context, child) {
               NotificationService().setContext(context);
