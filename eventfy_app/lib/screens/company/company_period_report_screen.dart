@@ -33,6 +33,7 @@ class _CompanyPeriodReportScreenState extends State<CompanyPeriodReportScreen> {
   final GlobalKey _reportKey = GlobalKey();
   int _selectedMonthIndex = 0;
   bool _monthlyLoading = false;
+  Map<String, Map<String, num>> _validatedMonthly = {};
 
   @override
   void initState() {
@@ -76,27 +77,16 @@ class _CompanyPeriodReportScreenState extends State<CompanyPeriodReportScreen> {
 
       final monthlyRes = await supabase.rpc('get_company_monthly_progress', params: params);
       final monthlyList = (monthlyRes as List?)?.map((e) => Map<String, dynamic>.from(e as Map)).toList() ?? [];
-      // Filtrar para não mostrar o mês atual no comparativo APENAS se o período terminar no mês corrente.
-      final now = DateTime.now();
-      final nowLabel = '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}';
-      final bool endsInCurrentMonth = (() {
-        final r = range ?? _selectedRange;
-        if (r == null) return true; // quando não há período, manter comportamento anterior e ocultar mês corrente
-        return r.end.year == now.year && r.end.month == now.month;
-      })();
-      List<Map<String, dynamic>> filtered = endsInCurrentMonth
-          ? monthlyList.where((m) => (m['month_label'] as String?) != nowLabel).toList()
-          : monthlyList;
-      // Caso o filtro remova todos os meses (ex.: selecionar apenas o mês corrente), mantenha a lista original
-      if (filtered.isEmpty && monthlyList.isNotEmpty) {
-        filtered = monthlyList;
-      }
+      // Incluir SEMPRE o mês final do período (inclusive mês corrente), para consistência com o período selecionado.
+      List<Map<String, dynamic>> filtered = monthlyList;
 
       setState(() {
         _monthlyStats = monthlyList;
         _monthlyStatsFiltered = filtered;
-        _selectedMonthIndex = filtered.isNotEmpty ? filtered.length - 1 : 0; // último mês disponível (mais recente, sem o atual)
+        _selectedMonthIndex = filtered.isNotEmpty ? filtered.length - 1 : 0;
       });
+
+      await _loadValidatedMonthly(range: range ?? _selectedRange);
     } catch (e) {
       NotificationService.instance.showError('Erro ao carregar comparativo mensal: $e');
     } finally {
@@ -104,6 +94,103 @@ class _CompanyPeriodReportScreenState extends State<CompanyPeriodReportScreen> {
         _monthlyLoading = false;
       });
     }
+  }
+
+  Future<void> _loadValidatedMonthly({DateTimeRange? range}) async {
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final company = authProvider.currentCompany;
+      if (company == null) return;
+      final DateTimeRange r = range ?? DateTimeRange(
+        start: DateTime.now().subtract(const Duration(days: 365)),
+        end: DateTime.now(),
+      );
+      final eventsRes = await supabase
+          .from('events')
+          .select('id,data_inicio')
+          .eq('company_id', company.id)
+          .gte('data_inicio', r.start.toUtc().toIso8601String())
+          .lte('data_inicio', r.end.toUtc().toIso8601String());
+      final List events = (eventsRes as List? ?? []);
+      final Map<String, String> idToMonth = {};
+      for (final e in events) {
+        final id = e['id'] as String?;
+        final di = DateTime.tryParse(e['data_inicio'] as String? ?? '')?.toLocal();
+        if (id != null && di != null) {
+          final label = '${di.year.toString().padLeft(4, '0')}-${di.month.toString().padLeft(2, '0')}';
+          idToMonth[id] = label;
+        }
+      }
+      final eventIds = idToMonth.keys.toList();
+      final Map<String, Map<String, num>> agg = {};
+      for (final m in _monthlyStatsFiltered) {
+        final label = m['month_label'] as String?;
+        if (label != null) {
+          agg[label] = {
+            'events_total': 0,
+            'confirmed_total': 0,
+            'attended_total': 0,
+            'reviews_total': 0,
+            'avg_rating_sum': 0.0,
+          };
+        }
+      }
+      for (final id in eventIds) {
+        final label = idToMonth[id];
+        if (label != null && agg.containsKey(label)) {
+          agg[label]!['events_total'] = (agg[label]!['events_total'] ?? 0) + 1;
+        }
+      }
+      if (eventIds.isNotEmpty) {
+        var confirmsQuery = supabase
+            .from('event_attendances')
+            .select('event_id,status');
+        if (eventIds.length == 1) {
+          confirmsQuery = confirmsQuery.eq('event_id', eventIds.first);
+        } else {
+          final orFilter = eventIds.map((id) => 'event_id.eq.$id').join(',');
+          confirmsQuery = confirmsQuery.or(orFilter);
+        }
+        final confirmsRes = await confirmsQuery;
+        final List confirms = (confirmsRes as List? ?? []);
+        for (final a in confirms) {
+          final eid = a['event_id'] as String?;
+          final label = eid != null ? idToMonth[eid] : null;
+          if (label != null && agg.containsKey(label)) {
+            final status = a['status'] as String?;
+            if (status == 'confirmado') {
+              agg[label]!['confirmed_total'] = (agg[label]!['confirmed_total'] ?? 0) + 1;
+            }
+            if (status == 'compareceu') {
+              agg[label]!['attended_total'] = (agg[label]!['attended_total'] ?? 0) + 1;
+            }
+          }
+        }
+        var reviewsQuery = supabase
+            .from('event_reviews')
+            .select('event_id,rating');
+        if (eventIds.length == 1) {
+          reviewsQuery = reviewsQuery.eq('event_id', eventIds.first);
+        } else {
+          final orFilter = eventIds.map((id) => 'event_id.eq.$id').join(',');
+          reviewsQuery = reviewsQuery.or(orFilter);
+        }
+        final reviewsRes = await reviewsQuery;
+        final List reviews = (reviewsRes as List? ?? []);
+        for (final rj in reviews) {
+          final eid = rj['event_id'] as String?;
+          final label = eid != null ? idToMonth[eid] : null;
+          if (label != null && agg.containsKey(label)) {
+            final rating = (rj['rating'] as num?)?.toDouble() ?? 0.0;
+            agg[label]!['reviews_total'] = (agg[label]!['reviews_total'] ?? 0) + 1;
+            agg[label]!['avg_rating_sum'] = (agg[label]!['avg_rating_sum'] ?? 0.0) + rating;
+          }
+        }
+      }
+      setState(() {
+        _validatedMonthly = agg;
+      });
+    } catch (_) {}
   }
 
   Future<void> _pickDateRange() async {
@@ -115,7 +202,10 @@ class _CompanyPeriodReportScreenState extends State<CompanyPeriodReportScreen> {
     final picked = await showDateRangePicker(
       context: context,
       firstDate: DateTime(2020, 1, 1),
-      lastDate: DateTime.now().add(const Duration(days: 1)),
+      lastDate: (initialDateRange.end.isAfter(DateTime.now())
+              ? initialDateRange.end
+              : DateTime.now())
+          .add(const Duration(days: 1)),
       initialDateRange: initialDateRange,
       saveText: 'Aplicar',
       helpText: 'Selecione o período do relatório',
@@ -358,31 +448,66 @@ class _CompanyPeriodReportScreenState extends State<CompanyPeriodReportScreen> {
     double cumSum = 0.0;
     int cumCount = 0;
     double prevCumAvg = 0.0;
+    int cumEv = 0;
+    int cumConf = 0;
+    int cumAtt = 0;
+    int cumRev = 0;
     for (final m in _monthlyStatsFiltered) {
-      final evTotal = ((m['events_cumulative'] as num?) ?? 0).toInt();
-      final evDelta = ((m['events_month'] as num?) ?? 0).toInt();
-      final confTotal = ((m['confirmed_cumulative'] as num?) ?? 0).toInt();
-      final confDelta = ((m['confirmed_month'] as num?) ?? 0).toInt();
-      final attTotal = ((m['attended_cumulative'] as num?) ?? 0).toInt();
-      final attDelta = ((m['attended_month'] as num?) ?? 0).toInt();
-      final revTotal = ((m['reviews_cumulative'] as num?) ?? 0).toInt();
-      final revDelta = ((m['reviews_month'] as num?) ?? 0).toInt();
-      final avgMonth = ((m['average_rating_month'] as num?) ?? 0).toDouble();
-      final monthSum = avgMonth * revDelta;
-      cumSum += monthSum;
-      cumCount += revDelta;
-      final cumAvg = cumCount > 0 ? (cumSum / cumCount) : 0.0;
-      final avgDelta = cumAvg - prevCumAvg;
-      final sign = avgDelta >= 0 ? '+' : '';
-      monthRows.add(pw.TableRow(children: [
-        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${m['month_label']}')),
-        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('$evTotal (+${evDelta < 0 ? 0 : evDelta})')),
-        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('$confTotal (+${confDelta < 0 ? 0 : confDelta})')),
-        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('$attTotal (+${attDelta < 0 ? 0 : attDelta})')),
-        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('$revTotal (+${revDelta < 0 ? 0 : revDelta})')),
-        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${cumAvg.toStringAsFixed(2)} (${sign}${avgDelta.toStringAsFixed(2)})')),
-      ]));
-      prevCumAvg = cumAvg;
+      final label = m['month_label'] as String?;
+      if (label != null && _validatedMonthly.containsKey(label)) {
+        final v = _validatedMonthly[label]!;
+        final vEvents = (v['events_total'] ?? 0).toInt();
+        final vConfirmed = (v['confirmed_total'] ?? 0).toInt();
+        final vAttended = (v['attended_total'] ?? 0).toInt();
+        final vReviews = (v['reviews_total'] ?? 0).toInt();
+        final vAvgSum = (v['avg_rating_sum'] ?? 0.0).toDouble();
+        final avgMonth = vReviews > 0 ? (vAvgSum / vReviews) : 0.0;
+        final monthCount = vReviews;
+        final monthSum = avgMonth * monthCount;
+        cumSum += monthSum;
+        cumCount += monthCount;
+        final cumAvg = cumCount > 0 ? (cumSum / cumCount) : 0.0;
+        final avgDelta = cumAvg - prevCumAvg;
+        final sign = avgDelta >= 0 ? '+' : '';
+        cumEv += vEvents;
+        cumConf += vConfirmed;
+        cumAtt += vAttended;
+        cumRev += vReviews;
+        monthRows.add(pw.TableRow(children: [
+          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(label)),
+          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('$cumEv (+$vEvents)')),
+          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('$cumConf (+$vConfirmed)')),
+          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('$cumAtt (+$vAttended)')),
+          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('$cumRev (+$vReviews)')),
+          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${cumAvg.toStringAsFixed(2)} (${sign}${avgDelta.toStringAsFixed(2)})')),
+        ]));
+        prevCumAvg = cumAvg;
+      } else {
+        final evTotal = ((m['events_cumulative'] as num?) ?? 0).toInt();
+        final evDelta = ((m['events_month'] as num?) ?? 0).toInt();
+        final confTotal = ((m['confirmed_cumulative'] as num?) ?? 0).toInt();
+        final confDelta = ((m['confirmed_month'] as num?) ?? 0).toInt();
+        final attTotal = ((m['attended_cumulative'] as num?) ?? 0).toInt();
+        final attDelta = ((m['attended_month'] as num?) ?? 0).toInt();
+        final revTotal = ((m['reviews_cumulative'] as num?) ?? 0).toInt();
+        final revDelta = ((m['reviews_month'] as num?) ?? 0).toInt();
+        final avgMonth = ((m['average_rating_month'] as num?) ?? 0).toDouble();
+        final monthSum = avgMonth * (revDelta < 0 ? 0 : revDelta);
+        cumSum += monthSum;
+        cumCount += (revDelta < 0 ? 0 : revDelta);
+        final cumAvg = cumCount > 0 ? (cumSum / cumCount) : 0.0;
+        final avgDelta = cumAvg - prevCumAvg;
+        final sign = avgDelta >= 0 ? '+' : '';
+        monthRows.add(pw.TableRow(children: [
+          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${m['month_label']}')),
+          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('$evTotal (+${evDelta < 0 ? 0 : evDelta})')),
+          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('$confTotal (+${confDelta < 0 ? 0 : confDelta})')),
+          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('$attTotal (+${attDelta < 0 ? 0 : attDelta})')),
+          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('$revTotal (+${revDelta < 0 ? 0 : revDelta})')),
+          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${cumAvg.toStringAsFixed(2)} (${sign}${avgDelta.toStringAsFixed(2)})')),
+        ]));
+        prevCumAvg = cumAvg;
+      }
     }
 
     doc.addPage(pw.MultiPage(build: (context) {
@@ -538,9 +663,11 @@ class _CompanyPeriodReportScreenState extends State<CompanyPeriodReportScreen> {
                 ),
               ),
               ElevatedButton.icon(
-                onPressed: _reportLoading ? null : _generatePeriodReport,
+                onPressed: (_selectedRange == null || _reportLoading) ? null : _generatePeriodReport,
                 icon: const Icon(Icons.analytics_outlined),
-                label: _reportLoading ? const Text('Gerando...') : const Text('Gerar Relatório'),
+                label: _reportLoading
+                    ? const Text('Gerando...')
+                    : Text(_selectedRange == null ? 'Selecione um período' : 'Gerar Relatório'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.deepPurple.shade700,
                   foregroundColor: Colors.white,
@@ -655,21 +782,76 @@ class _CompanyPeriodReportScreenState extends State<CompanyPeriodReportScreen> {
                                   double cumSum = 0.0;
                                   int cumCount = 0;
                                   double prevCumAvg = 0.0;
+                                  int cumEv = 0;
+                                  int cumConf = 0;
+                                  int cumAtt = 0;
+                                  int cumRev = 0;
                                   return Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: _monthlyStatsFiltered.map((m) {
                                       final evTotal = ((m['events_cumulative'] as num?) ?? 0).toInt();
-                                      final evDelta = ((m['events_month'] as num?) ?? 0).toInt();
                                       final confTotal = ((m['confirmed_cumulative'] as num?) ?? 0).toInt();
-                                      final confDelta = ((m['confirmed_month'] as num?) ?? 0).toInt();
                                       final attTotal = ((m['attended_cumulative'] as num?) ?? 0).toInt();
-                                      final attDelta = ((m['attended_month'] as num?) ?? 0).toInt();
                                       final revTotal = ((m['reviews_cumulative'] as num?) ?? 0).toInt();
+                                      final evDelta = ((m['events_month'] as num?) ?? 0).toInt();
+                                      final confDelta = ((m['confirmed_month'] as num?) ?? 0).toInt();
+                                      final attDelta = ((m['attended_month'] as num?) ?? 0).toInt();
                                       final revDelta = ((m['reviews_month'] as num?) ?? 0).toInt();
+                                      final label = m['month_label'] as String?;
+                                      if (label != null && _validatedMonthly.containsKey(label)) {
+                                        final v = _validatedMonthly[label]!;
+                                        final vEvents = (v['events_total'] ?? 0).toInt();
+                                        final vReviews = (v['reviews_total'] ?? 0).toInt();
+                                        final vAvgSum = (v['avg_rating_sum'] ?? 0.0).toDouble();
+                                        final vConfirmed = (v['confirmed_total'] ?? 0).toInt();
+                                        final vAttended = (v['attended_total'] ?? 0).toInt();
+                                        final avgMonth = vReviews > 0 ? (vAvgSum / vReviews) : 0.0;
+                                        final monthCount = vReviews;
+                                        final monthSum = avgMonth * monthCount;
+                                        cumSum += monthSum;
+                                        cumCount += monthCount;
+                                        final cumAvg = cumCount > 0 ? (cumSum / cumCount) : 0.0;
+                                        final avgDelta = cumAvg - prevCumAvg;
+                                        final sign = avgDelta >= 0 ? '+' : '';
+                                        cumEv += vEvents;
+                                        cumConf += vConfirmed;
+                                        cumAtt += vAttended;
+                                        cumRev += vReviews;
+                                        prevCumAvg = cumAvg;
+                                        return Card(
+                                          child: Padding(
+                                            padding: const EdgeInsets.all(12),
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Row(
+                                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                  children: [
+                                                    Text(label, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                                                    Text('Média: ${cumAvg.toStringAsFixed(2)}  (${sign}${avgDelta.toStringAsFixed(2)})', style: const TextStyle(fontSize: 12)),
+                                                  ],
+                                                ),
+                                                const SizedBox(height: 8),
+                                                Wrap(
+                                                  spacing: 8,
+                                                  runSpacing: 8,
+                                                  children: [
+                                                    Chip(label: Text('Eventos: $cumEv (+$vEvents)')),
+                                                    Chip(label: Text('Confirmados: $cumConf (+$vConfirmed)')),
+                                                    Chip(label: Text('Compareceram: $cumAtt (+$vAttended)')),
+                                                    Chip(label: Text('Reviews: $cumRev (+$vReviews)')),
+                                                  ],
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        );
+                                      }
                                       final avgMonth = ((m['average_rating_month'] as num?) ?? 0).toDouble();
-                                      final monthSum = avgMonth * revDelta;
+                                      final monthCount = revDelta > 0 ? revDelta : 0;
+                                      final monthSum = avgMonth * monthCount;
                                       cumSum += monthSum;
-                                      cumCount += revDelta;
+                                      cumCount += monthCount;
                                       final cumAvg = cumCount > 0 ? (cumSum / cumCount) : 0.0;
                                       final avgDelta = cumAvg - prevCumAvg;
                                       final sign = avgDelta >= 0 ? '+' : '';
@@ -779,7 +961,7 @@ class _StatCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       child: Container(
-        constraints: const BoxConstraints(minHeight: 96),
+        constraints: const BoxConstraints(minHeight: 112),
         padding: const EdgeInsets.all(16),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
@@ -791,21 +973,9 @@ class _StatCard extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    title,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    softWrap: false,
-                  ),
+                  Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 4),
-                  Text(
-                    value,
-                    style: const TextStyle(fontSize: 18),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    softWrap: false,
-                  ),
+                  Text(value, style: const TextStyle(fontSize: 18)),
                 ],
               ),
             ),
