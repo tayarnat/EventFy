@@ -253,12 +253,8 @@ class FavoritesProvider with ChangeNotifier {
         .map((e) => EventModel.fromJson(e as Map<String, dynamic>))
         .toList();
 
-    // Média de avaliações de eventos passados
-    double avgRating = 0.0;
-    final ratings = pastEvents.map((e) => e.averageRating ?? 0.0).toList();
-    if (ratings.isNotEmpty) {
-      avgRating = ratings.reduce((a, b) => a + b) / ratings.length;
-    }
+    // Média de avaliações de eventos passados (considera apenas eventos com pelo menos 1 avaliação)
+    double avgRating = computeAveragePastEventRating(pastEvents);
 
     // Resumo de categorias dos eventos passados
     Map<String, int> categoryCounts = {};
@@ -285,5 +281,12 @@ class FavoritesProvider with ChangeNotifier {
       categoryCounts: categoryCounts,
       averagePastEventRating: avgRating,
     );
+  }
+
+  double computeAveragePastEventRating(List<EventModel> pastEvents) {
+    final ratedEvents = pastEvents.where((e) => (e.totalReviews) > 0 && e.averageRating != null).toList();
+    if (ratedEvents.isEmpty) return 0.0;
+    final sum = ratedEvents.fold<double>(0.0, (acc, e) => acc + (e.averageRating ?? 0.0));
+    return sum / ratedEvents.length;
   }
 }

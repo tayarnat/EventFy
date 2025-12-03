@@ -851,12 +851,33 @@ class PastEventCard extends StatelessWidget {
                     color: Colors.amber,
                   ),
                   const SizedBox(width: 4),
-                  Text(
-                    '${event.averageRating?.toStringAsFixed(1) ?? '0.0'} (${event.totalReviews} avaliações)',
-                    style: TextStyle(
-                      color: Colors.grey[600],
-                      fontSize: 12,
-                    ),
+                  Row(
+                    children: [
+                      Text(
+                        '${event.averageRating?.toStringAsFixed(1) ?? '0.0'}',
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      if (event.totalReviews > 0)
+                        Text(
+                          '(${event.totalReviews} avaliações)',
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 12,
+                          ),
+                        )
+                      else
+                        Text(
+                          'Sem avaliações',
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 12,
+                          ),
+                        ),
+                    ],
                   ),
                 ],
               ),

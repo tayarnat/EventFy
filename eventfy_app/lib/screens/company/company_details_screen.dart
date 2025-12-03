@@ -284,6 +284,11 @@ class _CompanyDetailsScreenState extends State<CompanyDetailsScreen> {
                         Icon(Icons.star, color: Colors.amber.shade700, size: 18),
                         const SizedBox(width: 4),
                         Text((e.averageRating ?? 0.0).toStringAsFixed(1)),
+                        const SizedBox(width: 8),
+                        if (e.totalReviews > 0)
+                          Text('(${e.totalReviews} avaliações)')
+                        else
+                          const Text('Sem avaliações'),
                       ],
                     ),
                     trailing: const Icon(Icons.chevron_right),
