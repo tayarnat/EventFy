@@ -13,6 +13,9 @@ import 'package:path_provider/path_provider.dart';
 import 'package:printing/printing.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:pdf/pdf.dart' as pdf;
+import 'package:share_plus/share_plus.dart';
+// Removidos exports CSV/JSON
+import 'package:open_filex/open_filex.dart';
 
 class CompanyPeriodReportScreen extends StatefulWidget {
   const CompanyPeriodReportScreen({Key? key}) : super(key: key);
@@ -310,51 +313,159 @@ class _CompanyPeriodReportScreenState extends State<CompanyPeriodReportScreen> {
   Future<void> _downloadReportAsImage() async {
     final pngBytes = await _captureReportImageBytes();
     if (pngBytes == null) return;
-    if (kIsWeb) {
-      NotificationService.instance.showWarning('Download de imagem não é suportado no Web por enquanto. Use PDF.');
-      return;
-    }
     try {
+      if (kIsWeb) {
+        final doc = pw.Document();
+        final image = pw.MemoryImage(pngBytes);
+        doc.addPage(pw.Page(build: (context) => pw.Image(image)));
+        await Printing.sharePdf(bytes: await doc.save(), filename: 'relatorio_eventfy.pdf');
+        return;
+      }
+      final dir = await getTemporaryDirectory();
+      final filePath = '${dir.path}/relatorio_eventfy_${DateTime.now().millisecondsSinceEpoch}.png';
+      final file = io.File(filePath);
+      await file.writeAsBytes(pngBytes);
+      await Share.shareXFiles([XFile(filePath, mimeType: 'image/png')], text: 'Relatório EventFy');
+    } catch (e) {
+      NotificationService.instance.showError('Erro ao compartilhar imagem: $e');
+    }
+  }
+
+  Future<void> _saveImageToAppDir() async {
+    try {
+      final pngBytes = await _captureReportImageBytes();
+      if (pngBytes == null) return;
       final dir = await getApplicationDocumentsDirectory();
       final filePath = '${dir.path}/relatorio_eventfy_${DateTime.now().millisecondsSinceEpoch}.png';
       final file = io.File(filePath);
       await file.writeAsBytes(pngBytes);
       NotificationService.instance.showSuccess('Imagem salva em: $filePath');
+      await OpenFilex.open(filePath);
     } catch (e) {
-      NotificationService.instance.showError('Erro ao salvar imagem: $e');
+      NotificationService.instance.showError('Erro ao salvar/abrir imagem: $e');
     }
   }
 
-  Future<void> _downloadReportAsPdf() async {
-    try {
-      final pngBytes = await _captureReportImageBytes();
-      if (pngBytes == null) return;
-      final doc = pw.Document();
-      final image = pw.MemoryImage(pngBytes);
-      doc.addPage(
-        pw.Page(
-          build: (pw.Context context) {
-            return pw.Column(children: [
-              pw.Text('Relatório de Estatísticas da Empresa', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
-              pw.SizedBox(height: 8),
-              pw.Image(image, fit: pw.BoxFit.contain),
-            ]);
-          },
-        ),
-      );
+  Future<Uint8List> _buildPdfBytes() async {
+    final doc = pw.Document();
+    final period = _selectedRange;
+    final periodLabel = period == null
+        ? 'Período não selecionado'
+        : '${period.start.day.toString().padLeft(2, '0')}/${period.start.month.toString().padLeft(2, '0')}/${period.start.year} - ${period.end.day.toString().padLeft(2, '0')}/${period.end.month.toString().padLeft(2, '0')}/${period.end.year}';
+    final stats = _periodReport ?? {};
 
-      if (kIsWeb) {
-        await Printing.sharePdf(bytes: await doc.save(), filename: 'relatorio_eventfy.pdf');
-        return;
+    List<pw.TableRow> monthRows = [];
+    for (int i = 0; i < _monthlyStatsFiltered.length; i++) {
+      final m = _monthlyStatsFiltered[i];
+      final prev = i > 0 ? _monthlyStatsFiltered[i - 1] : null;
+      num evTotal = (m['events_cumulative'] as num?) ?? 0;
+      num evDelta = ((m['events_month'] as num?) ?? 0);
+      num confTotal = (m['confirmed_cumulative'] as num?) ?? 0;
+      num confDelta = ((m['confirmed_month'] as num?) ?? 0);
+      num attTotal = (m['attended_cumulative'] as num?) ?? 0;
+      num attDelta = ((m['attended_month'] as num?) ?? 0);
+      num revTotal = (m['reviews_cumulative'] as num?) ?? 0;
+      num revDelta = ((m['reviews_month'] as num?) ?? 0);
+      double prevAvg = ((m['average_rating_prev'] as num?) ?? 0).toDouble();
+      double currAvg = ((m['average_rating_month'] as num?) ?? 0).toDouble();
+      String avgDeltaText(double curr, double prev) {
+        final d = curr - prev;
+        final sign = d >= 0 ? '+' : '';
+        return '$sign${d.toStringAsFixed(2)}';
       }
+      monthRows.add(pw.TableRow(children: [
+        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${m['month_label']}')),
+        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${evTotal.toInt()}')),
+        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${evDelta < 0 ? 0 : evDelta.toInt()}')),
+        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${confTotal.toInt()}')),
+        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${confDelta < 0 ? 0 : confDelta.toInt()}')),
+        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${attTotal.toInt()}')),
+        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${attDelta < 0 ? 0 : attDelta.toInt()}')),
+        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${revTotal.toInt()}')),
+        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${revDelta < 0 ? 0 : revDelta.toInt()}')),
+        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${currAvg.toStringAsFixed(2)}')),
+        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(avgDeltaText(currAvg, prevAvg))),
+      ]));
+    }
 
-      final dir = await getApplicationDocumentsDirectory();
-      final filePath = '${dir.path}/relatorio_eventfy_${DateTime.now().millisecondsSinceEpoch}.pdf';
-      final file = io.File(filePath);
-      await file.writeAsBytes(await doc.save());
-      NotificationService.instance.showSuccess('PDF salvo em: $filePath');
+    doc.addPage(pw.MultiPage(build: (context) {
+      return [
+        pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
+          pw.Text('Relatório de Estatísticas da Empresa', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+          pw.Text(periodLabel, style: const pw.TextStyle(fontSize: 12))
+        ]),
+        pw.SizedBox(height: 12),
+        pw.Table(columnWidths: {
+          0: const pw.FlexColumnWidth(1),
+          1: const pw.FlexColumnWidth(1),
+        }, children: [
+          pw.TableRow(children: [
+            pw.Container(padding: const pw.EdgeInsets.all(8), child: pw.Column(children: [
+              pw.Text('Eventos (período)', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+              pw.SizedBox(height: 4),
+              pw.Text('${(stats['total_events'] ?? 0)}')
+            ])),
+            pw.Container(padding: const pw.EdgeInsets.all(8), child: pw.Column(children: [
+              pw.Text('Confirmados', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+              pw.SizedBox(height: 4),
+              pw.Text('${(stats['total_confirmed'] ?? 0)}')
+            ])),
+          ]),
+          pw.TableRow(children: [
+            pw.Container(padding: const pw.EdgeInsets.all(8), child: pw.Column(children: [
+              pw.Text('Compareceram', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+              pw.SizedBox(height: 4),
+              pw.Text('${(stats['total_attended'] ?? 0)}')
+            ])),
+            pw.Container(padding: const pw.EdgeInsets.all(8), child: pw.Column(children: [
+              pw.Text('Média Avaliações', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+              pw.SizedBox(height: 4),
+              pw.Text('${(((stats['average_rating'] ?? 0.0) as num).toDouble()).toStringAsFixed(2)}')
+            ])),
+          ]),
+          pw.TableRow(children: [
+            pw.Container(padding: const pw.EdgeInsets.all(8), child: pw.Column(children: [
+              pw.Text('Total de Reviews', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+              pw.SizedBox(height: 4),
+              pw.Text('${(stats['total_reviews'] ?? 0)}')
+            ])),
+            pw.Container(padding: const pw.EdgeInsets.all(8), child: pw.Column(children: [
+              pw.Text('Cancelados (período)', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+              pw.SizedBox(height: 4),
+              pw.Text('${(stats['events_cancelled'] ?? 0)}')
+            ])),
+          ]),
+        ]),
+        pw.SizedBox(height: 16),
+        pw.Text('Progresso entre meses', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+        pw.SizedBox(height: 8),
+        pw.Table(border: pw.TableBorder.all(), children: [
+          pw.TableRow(children: [
+            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Mês', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Eventos (total)', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Δ total eventos', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Confirmados (total)', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Δ total confirmados', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Compareceram (total)', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Δ total compareceram', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Reviews (total)', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Δ total reviews', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Média cumulativa ★', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Δ média', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+          ]),
+          ...monthRows,
+        ]),
+      ];
+    }));
+    return await doc.save();
+  }
+
+  Future<void> _shareReportAsPdf() async {
+    try {
+      final bytes = await _buildPdfBytes();
+      await Printing.sharePdf(bytes: bytes, filename: 'relatorio_eventfy.pdf');
     } catch (e) {
-      NotificationService.instance.showError('Erro ao gerar/salvar PDF: $e');
+      NotificationService.instance.showError('Erro ao compartilhar PDF: $e');
     }
   }
 
@@ -376,6 +487,21 @@ class _CompanyPeriodReportScreenState extends State<CompanyPeriodReportScreen> {
       NotificationService.instance.showError('Erro ao imprimir: $e');
     }
   }
+
+  Future<void> _savePdfToAppDir() async {
+    try {
+      final bytes = await _buildPdfBytes();
+      final dir = await getApplicationDocumentsDirectory();
+      final filePath = '${dir.path}/relatorio_eventfy_${DateTime.now().millisecondsSinceEpoch}.pdf';
+      final file = io.File(filePath);
+      await file.writeAsBytes(bytes);
+      NotificationService.instance.showSuccess('PDF salvo em: $filePath');
+      await OpenFilex.open(filePath);
+    } catch (e) {
+      NotificationService.instance.showError('Erro ao salvar/abrir PDF: $e');
+    }
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -526,86 +652,61 @@ class _CompanyPeriodReportScreenState extends State<CompanyPeriodReportScreen> {
                           else
                             Padding(
                               padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      IconButton(
-                                        tooltip: 'Mês anterior',
-                                        icon: const Icon(Icons.chevron_left),
-                                        onPressed: _selectedMonthIndex > 0 ? () => setState(() => _selectedMonthIndex--) : null,
-                                      ),
-                                      Expanded(
-                                        child: Center(
-                                          child: Text(
-                                            '${_monthlyStatsFiltered[_selectedMonthIndex]['month_label']}',
-                                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                                          ),
-                                        ),
-                                      ),
-                                      IconButton(
-                                        tooltip: 'Próximo mês',
-                                        icon: const Icon(Icons.chevron_right),
-                                        onPressed: _selectedMonthIndex < _monthlyStatsFiltered.length - 1 ? () => setState(() => _selectedMonthIndex++) : null,
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Builder(
-                                    builder: (context) {
-                                      // Valores cumulativos (base -> atual) e delta mês-a-mês (positivos ou negativos)
-                                      final Map<String, dynamic> current = _monthlyStatsFiltered[_selectedMonthIndex];
-                                      final Map<String, dynamic>? prev = _selectedMonthIndex > 0 ? _monthlyStatsFiltered[_selectedMonthIndex - 1] : null;
-
-                                      // Cumulativos para exibição base → atual
-                                      final int baseEvents = prev != null ? (((prev['events_cumulative'] as num?) ?? 0).toInt()) : 0;
-                                      final int currEvents = ((current['events_cumulative'] as num?) ?? 0).toInt();
-
-                                      final int baseConfirmed = prev != null ? (((prev['confirmed_cumulative'] as num?) ?? 0).toInt()) : 0;
-                                      final int currConfirmed = ((current['confirmed_cumulative'] as num?) ?? 0).toInt();
-
-                                      final int baseAttended = prev != null ? (((prev['attended_cumulative'] as num?) ?? 0).toInt()) : 0;
-                                      final int currAttended = ((current['attended_cumulative'] as num?) ?? 0).toInt();
-
-                                      final int baseReviews = prev != null ? (((prev['reviews_cumulative'] as num?) ?? 0).toInt()) : 0;
-                                      final int currReviews = ((current['reviews_cumulative'] as num?) ?? 0).toInt();
-
-                                      // Deltas mês-a-mês
-                                      final int eventsDelta = _selectedMonthIndex > 0
-                                          ? (((current['events_month'] as num?) ?? 0).toInt() - (((prev?['events_month'] as num?) ?? 0).toInt()))
-                                          : 0;
-                                      final int confirmedDelta = _selectedMonthIndex > 0
-                                          ? (((current['confirmed_month'] as num?) ?? 0).toInt() - (((prev?['confirmed_month'] as num?) ?? 0).toInt()))
-                                          : 0;
-                                      final int attendedDelta = _selectedMonthIndex > 0
-                                          ? (((current['attended_month'] as num?) ?? 0).toInt() - (((prev?['attended_month'] as num?) ?? 0).toInt()))
-                                          : 0;
-                                      final int reviewsDelta = _selectedMonthIndex > 0
-                                          ? (((current['reviews_month'] as num?) ?? 0).toInt() - (((prev?['reviews_month'] as num?) ?? 0).toInt()))
-                                          : 0;
-
-                                      // Média: mês atual vs mês anterior
-                                      final double prevAvgRating = (((current['average_rating_prev'] as num?) ?? 0.0).toDouble());
-                                      final double currAvgRating = (((current['average_rating_month'] as num?) ?? 0.0).toDouble());
-                                      final double avgDelta = _selectedMonthIndex > 0 ? (currAvgRating - prevAvgRating) : 0.0;
-
-                                      return Wrap(
-                                        spacing: 6,
-                                        runSpacing: 6,
-                                        children: [
-                                          _ProgressChip(label: 'Eventos', baseValue: baseEvents, currentValue: currEvents, overrideDelta: eventsDelta),
-                                          _ProgressChip(label: 'Confirmados', baseValue: baseConfirmed, currentValue: currConfirmed, overrideDelta: confirmedDelta),
-                                          _ProgressChip(label: 'Compareceram', baseValue: baseAttended, currentValue: currAttended, overrideDelta: attendedDelta),
-                                          _ProgressChip(label: 'Reviews', baseValue: baseReviews, currentValue: currReviews, overrideDelta: reviewsDelta),
-                                          _ProgressChip(label: 'Média ★', baseValue: prevAvgRating, currentValue: currAvgRating, isDouble: true, overrideDelta: avgDelta),
-                                        ],
-                                      );
-                                    },
-                                  ),
-                                ],
-                              ),
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Builder(builder: (context) {
+                                final rows = <DataRow>[];
+                                double cumSum = 0.0;
+                                int cumCount = 0;
+                                double prevCumAvg = 0.0;
+                                for (final m in _monthlyStatsFiltered) {
+                                  final evTotal = ((m['events_cumulative'] as num?) ?? 0).toInt();
+                                  final evDelta = ((m['events_month'] as num?) ?? 0).toInt();
+                                  final confTotal = ((m['confirmed_cumulative'] as num?) ?? 0).toInt();
+                                  final confDelta = ((m['confirmed_month'] as num?) ?? 0).toInt();
+                                  final attTotal = ((m['attended_cumulative'] as num?) ?? 0).toInt();
+                                  final attDelta = ((m['attended_month'] as num?) ?? 0).toInt();
+                                  final revTotal = ((m['reviews_cumulative'] as num?) ?? 0).toInt();
+                                  final revDelta = ((m['reviews_month'] as num?) ?? 0).toInt();
+                                  final avgMonth = ((m['average_rating_month'] as num?) ?? 0).toDouble();
+                                  final monthCount = revDelta;
+                                  final monthSum = avgMonth * monthCount;
+                                  cumSum += monthSum;
+                                  cumCount += monthCount;
+                                  final cumAvg = cumCount > 0 ? (cumSum / cumCount) : 0.0;
+                                  final avgDelta = cumAvg - prevCumAvg;
+                                  final sign = avgDelta >= 0 ? '+' : '';
+                                  rows.add(DataRow(cells: [
+                                    DataCell(Text('${m['month_label']}')),
+                                    DataCell(Text('$evTotal')),
+                                    DataCell(Text('${evDelta < 0 ? 0 : evDelta}')),
+                                    DataCell(Text('$confTotal')),
+                                    DataCell(Text('${confDelta < 0 ? 0 : confDelta}')),
+                                    DataCell(Text('$attTotal')),
+                                    DataCell(Text('${attDelta < 0 ? 0 : attDelta}')),
+                                    DataCell(Text('$revTotal')),
+                                    DataCell(Text('${revDelta < 0 ? 0 : revDelta}')),
+                                    DataCell(Text(cumAvg.toStringAsFixed(2))),
+                                    DataCell(Text('$sign${avgDelta.toStringAsFixed(2)}')),
+                                  ]));
+                                  prevCumAvg = cumAvg;
+                                }
+                                return DataTable(columns: const [
+                                  DataColumn(label: Text('Mês')),
+                                  DataColumn(label: Text('Eventos (total)')),
+                                  DataColumn(label: Text('Δ total eventos')),
+                                  DataColumn(label: Text('Confirmados (total)')),
+                                  DataColumn(label: Text('Δ total confirmados')),
+                                  DataColumn(label: Text('Compareceram (total)')),
+                                  DataColumn(label: Text('Δ total compareceram')),
+                                  DataColumn(label: Text('Reviews (total)')),
+                                  DataColumn(label: Text('Δ total reviews')),
+                                  DataColumn(label: Text('Média cumulativa ★')),
+                                  DataColumn(label: Text('Δ média')),
+                                ], rows: rows);
+                              }),
                             ),
+                          ),
                         ],
                       ),
                     ],
@@ -618,14 +719,24 @@ class _CompanyPeriodReportScreenState extends State<CompanyPeriodReportScreen> {
             runSpacing: 8,
             children: [
               OutlinedButton.icon(
+                icon: const Icon(Icons.save),
+                label: const Text('Salvar Imagem (App)'),
+                onPressed: _saveImageToAppDir,
+              ),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.save),
+                label: const Text('Salvar PDF (App)'),
+                onPressed: _savePdfToAppDir,
+              ),
+              OutlinedButton.icon(
                 icon: const Icon(Icons.image_outlined),
-                label: const Text('Baixar como Imagem'),
+                label: const Text('Compartilhar Imagem'),
                 onPressed: _downloadReportAsImage,
               ),
               OutlinedButton.icon(
                 icon: const Icon(Icons.picture_as_pdf),
-                label: const Text('Baixar PDF'),
-                onPressed: _downloadReportAsPdf,
+                label: const Text('Compartilhar PDF'),
+                onPressed: _shareReportAsPdf,
               ),
               ElevatedButton.icon(
                 icon: const Icon(Icons.print),
