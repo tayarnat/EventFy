@@ -355,37 +355,34 @@ class _CompanyPeriodReportScreenState extends State<CompanyPeriodReportScreen> {
     final stats = _periodReport ?? {};
 
     List<pw.TableRow> monthRows = [];
-    for (int i = 0; i < _monthlyStatsFiltered.length; i++) {
-      final m = _monthlyStatsFiltered[i];
-      final prev = i > 0 ? _monthlyStatsFiltered[i - 1] : null;
-      num evTotal = (m['events_cumulative'] as num?) ?? 0;
-      num evDelta = ((m['events_month'] as num?) ?? 0);
-      num confTotal = (m['confirmed_cumulative'] as num?) ?? 0;
-      num confDelta = ((m['confirmed_month'] as num?) ?? 0);
-      num attTotal = (m['attended_cumulative'] as num?) ?? 0;
-      num attDelta = ((m['attended_month'] as num?) ?? 0);
-      num revTotal = (m['reviews_cumulative'] as num?) ?? 0;
-      num revDelta = ((m['reviews_month'] as num?) ?? 0);
-      double prevAvg = ((m['average_rating_prev'] as num?) ?? 0).toDouble();
-      double currAvg = ((m['average_rating_month'] as num?) ?? 0).toDouble();
-      String avgDeltaText(double curr, double prev) {
-        final d = curr - prev;
-        final sign = d >= 0 ? '+' : '';
-        return '$sign${d.toStringAsFixed(2)}';
-      }
+    double cumSum = 0.0;
+    int cumCount = 0;
+    double prevCumAvg = 0.0;
+    for (final m in _monthlyStatsFiltered) {
+      final evTotal = ((m['events_cumulative'] as num?) ?? 0).toInt();
+      final evDelta = ((m['events_month'] as num?) ?? 0).toInt();
+      final confTotal = ((m['confirmed_cumulative'] as num?) ?? 0).toInt();
+      final confDelta = ((m['confirmed_month'] as num?) ?? 0).toInt();
+      final attTotal = ((m['attended_cumulative'] as num?) ?? 0).toInt();
+      final attDelta = ((m['attended_month'] as num?) ?? 0).toInt();
+      final revTotal = ((m['reviews_cumulative'] as num?) ?? 0).toInt();
+      final revDelta = ((m['reviews_month'] as num?) ?? 0).toInt();
+      final avgMonth = ((m['average_rating_month'] as num?) ?? 0).toDouble();
+      final monthSum = avgMonth * revDelta;
+      cumSum += monthSum;
+      cumCount += revDelta;
+      final cumAvg = cumCount > 0 ? (cumSum / cumCount) : 0.0;
+      final avgDelta = cumAvg - prevCumAvg;
+      final sign = avgDelta >= 0 ? '+' : '';
       monthRows.add(pw.TableRow(children: [
         pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${m['month_label']}')),
-        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${evTotal.toInt()}')),
-        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${evDelta < 0 ? 0 : evDelta.toInt()}')),
-        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${confTotal.toInt()}')),
-        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${confDelta < 0 ? 0 : confDelta.toInt()}')),
-        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${attTotal.toInt()}')),
-        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${attDelta < 0 ? 0 : attDelta.toInt()}')),
-        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${revTotal.toInt()}')),
-        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${revDelta < 0 ? 0 : revDelta.toInt()}')),
-        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${currAvg.toStringAsFixed(2)}')),
-        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(avgDeltaText(currAvg, prevAvg))),
+        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('$evTotal (+${evDelta < 0 ? 0 : evDelta})')),
+        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('$confTotal (+${confDelta < 0 ? 0 : confDelta})')),
+        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('$attTotal (+${attDelta < 0 ? 0 : attDelta})')),
+        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('$revTotal (+${revDelta < 0 ? 0 : revDelta})')),
+        pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${cumAvg.toStringAsFixed(2)} (${sign}${avgDelta.toStringAsFixed(2)})')),
       ]));
+      prevCumAvg = cumAvg;
     }
 
     doc.addPage(pw.MultiPage(build: (context) {
@@ -442,16 +439,11 @@ class _CompanyPeriodReportScreenState extends State<CompanyPeriodReportScreen> {
         pw.Table(border: pw.TableBorder.all(), children: [
           pw.TableRow(children: [
             pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Mês', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
-            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Eventos (total)', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
-            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Δ total eventos', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
-            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Confirmados (total)', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
-            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Δ total confirmados', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
-            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Compareceram (total)', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
-            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Δ total compareceram', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
-            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Reviews (total)', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
-            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Δ total reviews', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Eventos', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Confirmados', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Compareceram', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Reviews', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
             pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Média cumulativa ★', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
-            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Δ média', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
           ]),
           ...monthRows,
         ]),
@@ -652,61 +644,63 @@ class _CompanyPeriodReportScreenState extends State<CompanyPeriodReportScreen> {
                           else
                             Padding(
                               padding: const EdgeInsets.all(16),
-                            child: SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: Builder(builder: (context) {
-                                final rows = <DataRow>[];
-                                double cumSum = 0.0;
-                                int cumCount = 0;
-                                double prevCumAvg = 0.0;
-                                for (final m in _monthlyStatsFiltered) {
-                                  final evTotal = ((m['events_cumulative'] as num?) ?? 0).toInt();
-                                  final evDelta = ((m['events_month'] as num?) ?? 0).toInt();
-                                  final confTotal = ((m['confirmed_cumulative'] as num?) ?? 0).toInt();
-                                  final confDelta = ((m['confirmed_month'] as num?) ?? 0).toInt();
-                                  final attTotal = ((m['attended_cumulative'] as num?) ?? 0).toInt();
-                                  final attDelta = ((m['attended_month'] as num?) ?? 0).toInt();
-                                  final revTotal = ((m['reviews_cumulative'] as num?) ?? 0).toInt();
-                                  final revDelta = ((m['reviews_month'] as num?) ?? 0).toInt();
-                                  final avgMonth = ((m['average_rating_month'] as num?) ?? 0).toDouble();
-                                  final monthCount = revDelta;
-                                  final monthSum = avgMonth * monthCount;
-                                  cumSum += monthSum;
-                                  cumCount += monthCount;
-                                  final cumAvg = cumCount > 0 ? (cumSum / cumCount) : 0.0;
-                                  final avgDelta = cumAvg - prevCumAvg;
-                                  final sign = avgDelta >= 0 ? '+' : '';
-                                  rows.add(DataRow(cells: [
-                                    DataCell(Text('${m['month_label']}')),
-                                    DataCell(Text('$evTotal')),
-                                    DataCell(Text('${evDelta < 0 ? 0 : evDelta}')),
-                                    DataCell(Text('$confTotal')),
-                                    DataCell(Text('${confDelta < 0 ? 0 : confDelta}')),
-                                    DataCell(Text('$attTotal')),
-                                    DataCell(Text('${attDelta < 0 ? 0 : attDelta}')),
-                                    DataCell(Text('$revTotal')),
-                                    DataCell(Text('${revDelta < 0 ? 0 : revDelta}')),
-                                    DataCell(Text(cumAvg.toStringAsFixed(2))),
-                                    DataCell(Text('$sign${avgDelta.toStringAsFixed(2)}')),
-                                  ]));
-                                  prevCumAvg = cumAvg;
-                                }
-                                return DataTable(columns: const [
-                                  DataColumn(label: Text('Mês')),
-                                  DataColumn(label: Text('Eventos (total)')),
-                                  DataColumn(label: Text('Δ total eventos')),
-                                  DataColumn(label: Text('Confirmados (total)')),
-                                  DataColumn(label: Text('Δ total confirmados')),
-                                  DataColumn(label: Text('Compareceram (total)')),
-                                  DataColumn(label: Text('Δ total compareceram')),
-                                  DataColumn(label: Text('Reviews (total)')),
-                                  DataColumn(label: Text('Δ total reviews')),
-                                  DataColumn(label: Text('Média cumulativa ★')),
-                                  DataColumn(label: Text('Δ média')),
-                                ], rows: rows);
-                              }),
+                              child: Builder(
+                                builder: (context) {
+                                  double cumSum = 0.0;
+                                  int cumCount = 0;
+                                  double prevCumAvg = 0.0;
+                                  return Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: _monthlyStatsFiltered.map((m) {
+                                      final evTotal = ((m['events_cumulative'] as num?) ?? 0).toInt();
+                                      final evDelta = ((m['events_month'] as num?) ?? 0).toInt();
+                                      final confTotal = ((m['confirmed_cumulative'] as num?) ?? 0).toInt();
+                                      final confDelta = ((m['confirmed_month'] as num?) ?? 0).toInt();
+                                      final attTotal = ((m['attended_cumulative'] as num?) ?? 0).toInt();
+                                      final attDelta = ((m['attended_month'] as num?) ?? 0).toInt();
+                                      final revTotal = ((m['reviews_cumulative'] as num?) ?? 0).toInt();
+                                      final revDelta = ((m['reviews_month'] as num?) ?? 0).toInt();
+                                      final avgMonth = ((m['average_rating_month'] as num?) ?? 0).toDouble();
+                                      final monthSum = avgMonth * revDelta;
+                                      cumSum += monthSum;
+                                      cumCount += revDelta;
+                                      final cumAvg = cumCount > 0 ? (cumSum / cumCount) : 0.0;
+                                      final avgDelta = cumAvg - prevCumAvg;
+                                      final sign = avgDelta >= 0 ? '+' : '';
+                                      prevCumAvg = cumAvg;
+                                      return Card(
+                                        child: Padding(
+                                          padding: const EdgeInsets.all(12),
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Row(
+                                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                children: [
+                                                  Text('${m['month_label']}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                                                  Text('Média: ${cumAvg.toStringAsFixed(2)}  (${sign}${avgDelta.toStringAsFixed(2)})', style: const TextStyle(fontSize: 12)),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 8),
+                                              Wrap(
+                                                spacing: 8,
+                                                runSpacing: 8,
+                                                children: [
+                                                  Chip(label: Text('Eventos: $evTotal (+${evDelta < 0 ? 0 : evDelta})')),
+                                                  Chip(label: Text('Confirmados: $confTotal (+${confDelta < 0 ? 0 : confDelta})')),
+                                                  Chip(label: Text('Compareceram: $attTotal (+${attDelta < 0 ? 0 : attDelta})')),
+                                                  Chip(label: Text('Reviews: $revTotal (+${revDelta < 0 ? 0 : revDelta})')),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      );
+                                    }).toList(),
+                                  );
+                                },
+                              ),
                             ),
-                          ),
                         ],
                       ),
                     ],
@@ -718,34 +712,42 @@ class _CompanyPeriodReportScreenState extends State<CompanyPeriodReportScreen> {
             spacing: 8,
             runSpacing: 8,
             children: [
-              OutlinedButton.icon(
-                icon: const Icon(Icons.save),
-                label: const Text('Salvar Imagem (App)'),
-                onPressed: _saveImageToAppDir,
+              PopupMenuButton<String>(
+                onSelected: (value) {
+                  if (value == 'share_image') {
+                    _downloadReportAsImage();
+                  } else if (value == 'share_pdf') {
+                    _shareReportAsPdf();
+                  } else if (value == 'print_pdf') {
+                    _printReport();
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(value: 'share_image', child: ListTile(leading: Icon(Icons.image_outlined), title: Text('Compartilhar Imagem'))),
+                  const PopupMenuItem(value: 'share_pdf', child: ListTile(leading: Icon(Icons.picture_as_pdf), title: Text('Compartilhar PDF'))),
+                  const PopupMenuItem(value: 'print_pdf', child: ListTile(leading: Icon(Icons.print), title: Text('Imprimir'))),
+                ],
+                child: const Chip(
+                  avatar: Icon(Icons.share),
+                  label: Text('Compartilhar'),
+                ),
               ),
-              OutlinedButton.icon(
-                icon: const Icon(Icons.save),
-                label: const Text('Salvar PDF (App)'),
-                onPressed: _savePdfToAppDir,
-              ),
-              OutlinedButton.icon(
-                icon: const Icon(Icons.image_outlined),
-                label: const Text('Compartilhar Imagem'),
-                onPressed: _downloadReportAsImage,
-              ),
-              OutlinedButton.icon(
-                icon: const Icon(Icons.picture_as_pdf),
-                label: const Text('Compartilhar PDF'),
-                onPressed: _shareReportAsPdf,
-              ),
-              ElevatedButton.icon(
-                icon: const Icon(Icons.print),
-                label: const Text('Imprimir'),
-                onPressed: _printReport,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.deepPurple.shade700,
-                  foregroundColor: Colors.white,
-                ),  
+              PopupMenuButton<String>(
+                onSelected: (value) {
+                  if (value == 'save_image') {
+                    _saveImageToAppDir();
+                  } else if (value == 'save_pdf') {
+                    _savePdfToAppDir();
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(value: 'save_image', child: ListTile(leading: Icon(Icons.save), title: Text('Salvar Imagem'))),
+                  const PopupMenuItem(value: 'save_pdf', child: ListTile(leading: Icon(Icons.save), title: Text('Salvar PDF'))),
+                ],
+                child: const Chip(
+                  avatar: Icon(Icons.save_alt),
+                  label: Text('Salvar'),
+                ),
               ),
             ],
           ),
