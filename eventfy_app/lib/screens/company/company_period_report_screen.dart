@@ -559,14 +559,15 @@ class _CompanyPeriodReportScreenState extends State<CompanyPeriodReportScreen> {
                 : Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
+                      IntrinsicHeight(
+                        child: Row(
                         children: [
                           Expanded(
                             child: _StatCard(
                               icon: Icons.event_available,
                               title: 'Eventos (período)',
                               value: '${_periodReport!['total_events'] ?? 0}',
-                              color: Colors.blue,
+                              color: const ui.Color.fromARGB(255, 54, 134, 204),
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -580,8 +581,10 @@ class _CompanyPeriodReportScreenState extends State<CompanyPeriodReportScreen> {
                           ),
                         ],
                       ),
+                      ),
                       const SizedBox(height: 12),
-                      Row(
+                      IntrinsicHeight(
+                        child: Row(
                         children: [
                           Expanded(
                             child: _StatCard(
@@ -602,8 +605,10 @@ class _CompanyPeriodReportScreenState extends State<CompanyPeriodReportScreen> {
                           ),
                         ],
                       ),
+                      ),
                       const SizedBox(height: 12),
-                      Row(
+                      IntrinsicHeight(
+                        child: Row(
                         children: [
                           Expanded(
                             child: _StatCard(
@@ -623,6 +628,7 @@ class _CompanyPeriodReportScreenState extends State<CompanyPeriodReportScreen> {
                             ),
                           ),
                         ],
+                      ),
                       ),
                       const SizedBox(height: 16),
                       ExpansionTile(
@@ -725,7 +731,6 @@ class _CompanyPeriodReportScreenState extends State<CompanyPeriodReportScreen> {
                 itemBuilder: (context) => [
                   const PopupMenuItem(value: 'share_image', child: ListTile(leading: Icon(Icons.image_outlined), title: Text('Compartilhar Imagem'))),
                   const PopupMenuItem(value: 'share_pdf', child: ListTile(leading: Icon(Icons.picture_as_pdf), title: Text('Compartilhar PDF'))),
-                  const PopupMenuItem(value: 'print_pdf', child: ListTile(leading: Icon(Icons.print), title: Text('Imprimir'))),
                 ],
                 child: const Chip(
                   avatar: Icon(Icons.share),
@@ -773,19 +778,34 @@ class _StatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
-      child: Padding(
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 96),
         padding: const EdgeInsets.all(16),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Icon(icon, color: color),
+            Icon(icon, color: color, size: 24),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+                  Text(
+                    title,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    softWrap: false,
+                  ),
                   const SizedBox(height: 4),
-                  Text(value, style: const TextStyle(fontSize: 18)),
+                  Text(
+                    value,
+                    style: const TextStyle(fontSize: 18),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    softWrap: false,
+                  ),
                 ],
               ),
             ),
