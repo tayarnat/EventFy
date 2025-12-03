@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/config/supabase_config.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/favorites_provider.dart';
@@ -30,87 +29,11 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       _attendanceStatusFuture = _getMyAttendanceStatus(context);
-      _maybePromptAttendance(context);
       Provider.of<FavoritesProvider>(context, listen: false).isEventFavorited(event.id);
       setState(() {});
     });
   }
 
-  // Exibe um prompt único perguntando se o usuário participou do evento (apenas para usuários, não empresas)
-  Future<void> _maybePromptAttendance(BuildContext context) async {
-    try {
-      final auth = Provider.of<AuthProvider>(context, listen: false);
-      // Apenas usuários pessoas físicas
-      if (auth.isCompany || auth.currentUser == null) return;
-
-      // Verifica janela de atividade do evento: status ativo e dentro do período (ou logo após)
-      final now = DateTime.now();
-      final bool isInActiveWindow =
-          event.status == 'ativo' &&
-          now.isAfter(event.dataInicio.subtract(const Duration(minutes: 15))) &&
-          now.isBefore(event.dataFim.add(const Duration(hours: 12)));
-      if (!isInActiveWindow) return;
-
-      final prefs = await SharedPreferences.getInstance();
-      final key = 'attendance_prompted_v1_${event.id}_${auth.currentUser!.id}';
-      if (prefs.getBool(key) == true) return; // já perguntado
-
-      // Se já houver registro de comparecimento, não perguntar e marcar como perguntado
-      final existing = await supabase
-          .from('event_attendances')
-          .select('status')
-          .eq('user_id', auth.currentUser!.id)
-          .eq('event_id', event.id)
-          .maybeSingle();
-      if (existing != null && (existing['status'] as String?) == 'compareceu') {
-        await prefs.setBool(key, true);
-        return;
-      }
-      
-      // Se o usuário já declarou que vai participar, perguntar se compareceu
-      final willParticipate = existing != null && (existing['status'] as String?) == 'confirmado';
-      if (!willParticipate) {
-        // Se não há registro de intenção, não mostrar o prompt ainda
-        return;
-      }
-
-      // Mostrar diálogo
-      // ignore: use_build_context_synchronously
-      final confirmed = await showDialog<bool>(
-        context: context,
-        barrierDismissible: false,
-        builder: (ctx) {
-          return AlertDialog(
-            title: const Text('Você participou deste evento?'),
-            content: Text('Confirme sua presença em "${event.titulo}" para registrarmos no seu histórico.'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(false),
-                child: const Text('Não'),
-              ),
-              ElevatedButton(
-                onPressed: () => Navigator.of(ctx).pop(true),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.deepPurple.shade700,
-                  foregroundColor: Colors.white,
-                ),
-                child: const Text('Sim, participei'),
-              ),
-            ],
-          );
-        },
-      );
-
-      // Marcar que já perguntamos independente da resposta
-      await prefs.setBool(key, true);
-
-      if (confirmed == true) {
-        await _registerAttendance(context);
-      }
-    } catch (e) {
-      NotificationService.instance.showError('Erro ao verificar presença: $e');
-    }
-  }
 
   Future<void> _registerAttendance(BuildContext context) async {
     final auth = Provider.of<AuthProvider>(context, listen: false);
@@ -686,6 +609,8 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                             future: _getMyAttendanceStatus(context),
                             builder: (context, snapshot) {
                               final myStatus = snapshot.data;
+                              final now = DateTime.now();
+                              final withinOneMonth = now.isBefore(event.dataFim.add(const Duration(days: 30)));
                               if (myStatus == 'compareceu') {
                                 return Row(
                                   children: [
@@ -700,20 +625,19 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                                             );
                                             return;
                                           }
-                                          try {
-                                            final existing = await supabase
-                                                .from('event_reviews')
-                                                .select('id')
-                                                .eq('user_id', userId)
-                                                .eq('event_id', event.id)
-                                                .limit(1);
-                                            if (existing is List && existing.isNotEmpty) {
-                                              ScaffoldMessenger.of(context).showSnackBar(
-                                                const SnackBar(content: Text('Você já avaliou este evento')),
-                                              );
-                                              return;
-                                            }
-                                          } catch (_) {}
+                                          final existing = await supabase
+                                              .from('event_reviews')
+                                              .select('id')
+                                              .eq('user_id', userId)
+                                              .eq('event_id', event.id)
+                                              .limit(1);
+                                          final already = existing is List && existing.isNotEmpty;
+                                          if (already || !withinOneMonth) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(content: Text(already ? 'Você já avaliou este evento' : 'Período de avaliação encerrado')),
+                                            );
+                                            return;
+                                          }
                                           showModalBottomSheet(
                                             context: context,
                                             isScrollControlled: true,
@@ -763,16 +687,98 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                                   ],
                                 );
                               }
+                              if (myStatus == 'nao_compareceu') {
+                                return CustomButton(
+                                  onPressed: () {
+                                    showModalBottomSheet(
+                                      context: context,
+                                      isScrollControlled: true,
+                                      backgroundColor: Colors.transparent,
+                                      builder: (context) => DraggableScrollableSheet(
+                                        initialChildSize: 0.7,
+                                        minChildSize: 0.4,
+                                        maxChildSize: 0.95,
+                                        builder: (context, scrollController) {
+                                          return SingleChildScrollView(
+                                            controller: scrollController,
+                                            child: EventReviewsSheet(event: event),
+                                          );
+                                        },
+                                      ),
+                                    );
+                                  },
+                                  color: Theme.of(context).primaryColor,
+                                  child: const Text('Ver avaliações', style: TextStyle(color: Colors.white)),
+                                );
+                              }
                               if (myStatus == 'confirmado') {
+                                return CustomButton(
+                                  onPressed: () async {
+                                    await _registerAttendance(context);
+                                  },
+                                  color: Theme.of(context).primaryColor,
+                                  child: const Text('Registrar Presença', style: TextStyle(color: Colors.white)),
+                                );
+                              }
+                              return const SizedBox.shrink();
+                            },
+                          )
+                  : FutureBuilder<String?>(
+                            future: _attendanceStatusFuture,
+                            builder: (context, snapshot) {
+                              final myStatus = snapshot.data;
+                              final now = DateTime.now();
+                              final isActiveWindow = event.status == 'ativo' &&
+                                  now.isAfter(event.dataInicio.subtract(const Duration(minutes: 15))) &&
+                                  now.isBefore(event.dataFim.add(const Duration(hours: 12)));
+
+                              if (myStatus == 'compareceu') {
+                                final withinOneMonth = now.isBefore(event.dataFim.add(const Duration(days: 30)));
                                 return Row(
                                   children: [
                                     Expanded(
                                       child: CustomButton(
                                         onPressed: () async {
-                                          await _registerAttendance(context);
+                                          final auth = Provider.of<AuthProvider>(context, listen: false);
+                                          final userId = auth.currentUser?.id;
+                                          if (userId == null) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              const SnackBar(content: Text('Faça login para avaliar')),
+                                            );
+                                            return;
+                                          }
+                                          final existing = await supabase
+                                              .from('event_reviews')
+                                              .select('id')
+                                              .eq('user_id', userId)
+                                              .eq('event_id', event.id)
+                                              .limit(1);
+                                          final already = existing is List && existing.isNotEmpty;
+                                          if (already || !withinOneMonth) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(content: Text(already ? 'Você já avaliou este evento' : 'Período de avaliação encerrado')),
+                                            );
+                                            return;
+                                          }
+                                          showModalBottomSheet(
+                                            context: context,
+                                            isScrollControlled: true,
+                                            backgroundColor: Colors.transparent,
+                                            builder: (context) => DraggableScrollableSheet(
+                                              initialChildSize: 0.6,
+                                              minChildSize: 0.4,
+                                              maxChildSize: 0.9,
+                                              builder: (context, scrollController) {
+                                                return SingleChildScrollView(
+                                                  controller: scrollController,
+                                                  child: RateEventSheet(event: event),
+                                                );
+                                              },
+                                            ),
+                                          );
                                         },
                                         color: Theme.of(context).primaryColor,
-                                        child: const Text('Registrar Presença', style: TextStyle(color: Colors.white)),
+                                        child: const Text('Avaliar evento', style: TextStyle(color: Colors.white)),
                                       ),
                                     ),
                                     const SizedBox(width: 12),
@@ -803,44 +809,28 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                                   ],
                                 );
                               }
-                              return CustomButton(
-                                onPressed: () {
-                                  showModalBottomSheet(
-                                    context: context,
-                                    isScrollControlled: true,
-                                    backgroundColor: Colors.transparent,
-                                    builder: (context) => DraggableScrollableSheet(
-                                      initialChildSize: 0.7,
-                                      minChildSize: 0.4,
-                                      maxChildSize: 0.95,
-                                      builder: (context, scrollController) {
-                                        return SingleChildScrollView(
-                                          controller: scrollController,
-                                          child: EventReviewsSheet(event: event),
-                                        );
-                                      },
-                                    ),
-                                  );
-                                },
-                                color: Theme.of(context).primaryColor,
-                                child: const Text('Ver avaliações', style: TextStyle(color: Colors.white)),
-                              );
-                            },
-                          )
-                  : FutureBuilder<String?>(
-                            future: _attendanceStatusFuture,
-                            builder: (context, snapshot) {
-                              final myStatus = snapshot.data;
-                              final now = DateTime.now();
-                              final isActiveWindow = event.status == 'ativo' &&
-                                  now.isAfter(event.dataInicio.subtract(const Duration(minutes: 15))) &&
-                                  now.isBefore(event.dataFim.add(const Duration(hours: 12)));
-
-                              if (myStatus == 'compareceu') {
+                              if (myStatus == 'nao_compareceu') {
                                 return CustomButton(
-                                  onPressed: () {},
-                                  color: Colors.grey,
-                                  child: const Text('Presença registrada', style: TextStyle(color: Colors.white)),
+                                  onPressed: () {
+                                    showModalBottomSheet(
+                                      context: context,
+                                      isScrollControlled: true,
+                                      backgroundColor: Colors.transparent,
+                                      builder: (context) => DraggableScrollableSheet(
+                                        initialChildSize: 0.7,
+                                        minChildSize: 0.4,
+                                        maxChildSize: 0.95,
+                                        builder: (context, scrollController) {
+                                          return SingleChildScrollView(
+                                            controller: scrollController,
+                                            child: EventReviewsSheet(event: event),
+                                          );
+                                        },
+                                      ),
+                                    );
+                                  },
+                                  color: Theme.of(context).primaryColor,
+                                  child: const Text('Ver avaliações', style: TextStyle(color: Colors.white)),
                                 );
                               }
 

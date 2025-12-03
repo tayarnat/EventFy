@@ -43,31 +43,17 @@ class _RateEventSheetState extends State<RateEventSheet> {
         return;
       }
 
-      // Evitar avaliações duplicadas
-      final existing = await supabase
-          .from('event_reviews')
-          .select('id')
-          .eq('user_id', userId)
-          .eq('event_id', widget.event.id)
-          .limit(1);
-
-      if (existing is List && existing.isNotEmpty) {
-        setState(() {
-          _error = 'Você já avaliou este evento';
-          _submitting = false;
-        });
-        return;
-      }
-
-      await supabase.from('event_reviews').insert({
-        'user_id': userId,
-        'event_id': widget.event.id,
-        'rating': _rating,
-        'titulo': null,
-        'comentario': _commentController.text.trim().isEmpty
+      // Submeter via RPC com validações no servidor
+      await supabase.rpc('submit_event_review', params: {
+        'p_user_id': userId,
+        'p_event_id': widget.event.id,
+        'p_rating': _rating,
+        'p_titulo': null,
+        'p_comentario': _commentController.text.trim().isEmpty
             ? null
             : _commentController.text.trim(),
-        'is_anonymous': _anonymous,
+        'p_is_anonymous': _anonymous,
+        'p_window_days': 30,
       });
 
       try {

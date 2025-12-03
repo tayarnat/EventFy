@@ -61,7 +61,6 @@ class _CompanyProfileEditScreenState extends State<CompanyProfileEditScreen> {
       final updatedData = {
         'nome_fantasia': _nomeController.text.trim(),
         'razao_social': _razaoSocialController.text.trim().isEmpty ? null : _razaoSocialController.text.trim(),
-        'email': _emailController.text.trim(),
         'telefone': _telefoneController.text.trim().isEmpty ? null : _telefoneController.text.trim(),
         'endereco': _enderecoController.text.trim().isEmpty ? null : _enderecoController.text.trim(),
         'website': _websiteController.text.trim().isEmpty ? null : _websiteController.text.trim(),
@@ -79,7 +78,6 @@ class _CompanyProfileEditScreenState extends State<CompanyProfileEditScreen> {
       final updatedCompany = company.copyWith(
         nomeFantasia: _nomeController.text.trim(),
         razaoSocial: _razaoSocialController.text.trim().isEmpty ? null : _razaoSocialController.text.trim(),
-        email: _emailController.text.trim(),
         telefone: _telefoneController.text.trim().isEmpty ? null : _telefoneController.text.trim(),
         endereco: _enderecoController.text.trim().isEmpty ? null : _enderecoController.text.trim(),
         website: _websiteController.text.trim().isEmpty ? null : _websiteController.text.trim(),

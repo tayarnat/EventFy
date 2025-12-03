@@ -744,3 +744,88 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.get_company_monthly_progress(uuid, timestamptz, timestamptz, integer, boolean) TO authenticated;
+
+-- ============================================
+-- RPC: Verificação e submissão de avaliações
+-- ============================================
+
+CREATE OR REPLACE FUNCTION public.can_user_review_event(
+  p_user_id uuid,
+  p_event_id uuid,
+  p_window_days integer DEFAULT 30
+)
+RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER
+AS $$
+DECLARE
+  e RECORD;
+  att_status text;
+  now_ts timestamptz := NOW();
+BEGIN
+  SELECT * INTO e FROM events WHERE id = p_event_id;
+  IF e IS NULL THEN RETURN FALSE; END IF;
+
+  SELECT status INTO att_status
+  FROM event_attendances
+  WHERE user_id = p_user_id AND event_id = p_event_id
+  LIMIT 1;
+
+  IF att_status IS NULL THEN RETURN FALSE; END IF;
+  IF att_status NOT IN ('confirmado','compareceu') THEN RETURN FALSE; END IF;
+
+  IF now_ts < e.data_inicio THEN RETURN FALSE; END IF;
+  IF now_ts > e.data_fim + (p_window_days || ' days')::interval THEN RETURN FALSE; END IF;
+
+  IF EXISTS(SELECT 1 FROM event_reviews WHERE user_id = p_user_id AND event_id = p_event_id) THEN
+    RETURN FALSE;
+  END IF;
+
+  RETURN TRUE;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.can_user_review_event(uuid, uuid, integer) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.get_event_user_review(
+  p_user_id uuid,
+  p_event_id uuid
+)
+RETURNS TABLE (
+  id uuid,
+  rating integer,
+  titulo text,
+  comentario text,
+  created_at timestamptz
+)
+LANGUAGE sql SECURITY DEFINER
+AS $$
+  SELECT id, rating, titulo, comentario, created_at
+  FROM event_reviews
+  WHERE user_id = p_user_id AND event_id = p_event_id
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_event_user_review(uuid, uuid) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.submit_event_review(
+  p_user_id uuid,
+  p_event_id uuid,
+  p_rating integer,
+  p_titulo text DEFAULT NULL,
+  p_comentario text DEFAULT NULL,
+  p_is_anonymous boolean DEFAULT false,
+  p_window_days integer DEFAULT 30
+)
+RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER
+AS $$
+BEGIN
+  IF NOT public.can_user_review_event(p_user_id, p_event_id, p_window_days) THEN
+    RAISE EXCEPTION 'review not allowed' USING ERRCODE = '28000';
+  END IF;
+
+  INSERT INTO event_reviews(user_id, event_id, rating, titulo, comentario, is_anonymous, created_at)
+  VALUES (p_user_id, p_event_id, p_rating, p_titulo, p_comentario, p_is_anonymous, NOW());
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.submit_event_review(uuid, uuid, integer, text, text, boolean, integer) TO authenticated;
